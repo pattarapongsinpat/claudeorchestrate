@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""
+DeepSeek implementation dispatcher.
+
+Role in the workflow:
+  1. You give Claude guidelines -> Claude writes a precise spec (flat-rate, in Claude Code).
+  2. This script sends that spec to DeepSeek -> returns the implementation.
+     Pro is the default, Flash via --flash (cheaper).
+  3. The implementation goes back to Claude in Claude Code -> Claude reviews it
+     against the spec (flat-rate).
+
+Escalation ladder (driven by Claude in Claude Code, NOT by this script):
+  Flash first pass -> Pro (up to 2 rewrites) -> Claude (Opus) writes it directly.
+  This script is just the dispatch mechanism Claude calls at each DeepSeek rung.
+
+Key resolution (no per-project setup needed):
+  DEEPSEEK_API_KEY is read from, in order: the environment, then ~/.claude/.env,
+  then ./.env in the current project. Put the key in one .env and every project
+  can dispatch without its own copy.
+
+Usage:
+  python implement_with_deepseek.py spec.md            # spec from a file (Pro)
+  python implement_with_deepseek.py spec.md --flash    # cheaper Flash tier
+  python implement_with_deepseek.py "spec text here"   # spec inline
+  echo "spec" | python implement_with_deepseek.py      # spec from stdin
+  python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+"""
+
+import os
+import sys
+import argparse
+
+from openai import OpenAI  # DeepSeek is OpenAI-compatible
+
+DEEPSEEK_MODEL = "deepseek-v4-pro"            # default: stronger, still dirt cheap
+DEEPSEEK_FLASH = "deepseek-v4-flash"          # cheaper tier via --flash
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+
+SYSTEM = (
+    "You are an implementation engineer. You are given a precise specification "
+    "written by a senior engineer. Implement it exactly as specified. "
+    "Do not redesign, do not add features beyond the spec, do not add commentary. "
+    "Return only the code."
+)
+
+
+def _load_env_file(path: str) -> dict[str, str]:
+    """Parse simple KEY=VALUE lines from a .env file into a dict (no dependencies)."""
+    values: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                values[key.strip()] = val.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return values
+
+
+def _resolve_api_key() -> str | None:
+    """Find DEEPSEEK_API_KEY: environment first, then ~/.claude/.env, then ./.env."""
+    key = os.environ.get("DEEPSEEK_API_KEY")
+    if key:
+        return key
+    for path in (
+        os.path.join(os.path.expanduser("~"), ".claude", ".env"),
+        os.path.join(os.getcwd(), ".env"),
+    ):
+        found = _load_env_file(path).get("DEEPSEEK_API_KEY")
+        if found:
+            return found
+    return None
+
+
+def implement(spec: str, model: str = DEEPSEEK_MODEL) -> str:
+    """Send a spec to DeepSeek and return the implementation code."""
+    api_key = _resolve_api_key()
+    if not api_key:
+        sys.exit("Error: DEEPSEEK_API_KEY not found. Set it in the environment, "
+                 "in ~/.claude/.env, or in ./.env.")
+
+    client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": spec},
+            ],
+        )
+    except Exception as e:
+        # Surface a clean message instead of a raw traceback when a call fails
+        # (throttling, auth, network). Claude, driving this in Claude Code, can
+        # read this and decide whether to retry or escalate a tier.
+        sys.exit(f"DeepSeek call failed ({model}): {e}")
+
+    return resp.choices[0].message.content
+
+
+def _read_spec(arg: str | None) -> str:
+    """Resolve the spec from a file path, an inline string, or stdin."""
+    if arg is None:
+        return sys.stdin.read()
+    if os.path.isfile(arg):
+        with open(arg, "r", encoding="utf-8") as f:
+            return f.read()
+    return arg  # treat as inline spec text
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Implement a spec via DeepSeek (Pro by default).")
+    parser.add_argument("spec", nargs="?", help="Spec file path or inline text (omit to read stdin).")
+    parser.add_argument("-o", "--out", help="Write the implementation to this file.")
+    parser.add_argument("--flash", action="store_true",
+                        help="Use deepseek-v4-flash instead of pro (cheaper).")
+    args = parser.parse_args()
+
+    spec = _read_spec(args.spec).strip()
+    if not spec:
+        parser.error("No spec provided (file, inline text, or stdin).")
+
+    model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
+    code = implement(spec, model=model)
+
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(code)
+        print(f"Wrote implementation to {args.out}", file=sys.stderr)
+    else:
+        print(code)
+
+
+if __name__ == "__main__":
+    main()
