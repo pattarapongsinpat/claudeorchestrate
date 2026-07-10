@@ -29,6 +29,7 @@ Opus rung is the real saving.
 | --- | --- |
 | `CLAUDE.md` | Condensed operating rules Claude Code loads per session. |
 | `docs/deepseek-pipeline.md` | Full rationale and the subagent judging rules. |
+| `pipeline.py` | Staged entry point: `plan` / `run` / `auto` — intent to plan to agent, with Opus judge gates between stages. |
 | `implement_with_deepseek.py` | The dispatcher: sends a spec to DeepSeek, returns code. |
 | `deepseek_agent.py` | Agentic coding loop: DeepSeek reads/writes files and runs a verify command, iterating until it passes. |
 | `agents/deepseek-implementer.md` | Subagent def for fanning out parallel chunks. |

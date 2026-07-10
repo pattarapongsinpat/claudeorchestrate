@@ -133,6 +133,21 @@ python deepseek_agent.py plan.md --verify "pytest -q" --repo . --flash
 - Use the one-shot `implement_with_deepseek.py` for small single-file chunks — spinning up an
   agent for a 20-line function is wasted overhead (the single/near-mechanical gate).
 
+## The pipeline entry point (`pipeline.py`)
+One staged front door over the two tools, for the full intent → plan → agent flow:
+
+```
+python pipeline.py plan "INTENT"                              # DeepSeek drafts a plan; you judge it
+python pipeline.py run plan.md --verify "pytest -q" --repo .  # agent implements the approved plan
+python pipeline.py auto "INTENT" --verify "pytest -q" --repo . --flash   # one shot, SKIPS the plan gate
+```
+
+`plan` and `run` are two stages with an Opus judge gate between them (you review the plan
+before running it); the gates are yours, in Claude Code, not in the script — a fully automated
+run would delete the independent review the pipeline exists to keep. `auto` chains both and is
+for small/trusted tasks only; you still review the final diff. Args after the plan/intent in
+`run`/`auto` forward straight to `deepseek_agent.py`.
+
 ## The loop
 Spec (explicit acceptance criteria; lean, precise on *what correct means*, sparse on
 *how*) → dispatch → review against the spec → escalate on failure. See `sample_spec.md`
