@@ -47,6 +47,22 @@ with Claude. The point is to conserve Claude rate-limit usage: DeepSeek does the
 generation (and the long plans) you'd otherwise spend Claude quota on. Bias every choice toward
 resolving at DeepSeek and avoiding the Opus rung.
 
+## Session model: Sonnet for the session, Opus for judging and authorship
+Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
+off. Sonnet handles the chat, the short intent, orchestration, delegation decisions, and
+running the pipeline. Opus is invoked *as a subagent* only for two roles:
+- **Judging → the `judge` subagent** (Opus, read-only). Delegate BOTH gates to it — the plan
+  against the intent, and the diff against the plan. It returns PASS/FAIL with specific
+  reasons and is independent by construction (fresh context, no anchoring on the session).
+- **Terminal authorship → the `author` subagent** (Opus). When DeepSeek exhausts the ladder,
+  the failed leg goes to `author`, which writes the last rung directly and verifies it — not
+  to Sonnet.
+
+This holds Opus usage to the high-value gates while the bulk of the session runs cheap on
+Sonnet. Everywhere below, "the current model" is Sonnet in this mode and "the Opus rung" is
+the `author` subagent. If you instead run the session directly on Opus, these are just you —
+no subagents needed.
+
 ## When to use it
 - **A direct instruction wins.** If I say "implement it directly / you write it / handle
   it yourself," skip the pipeline and just write the code.
@@ -167,7 +183,8 @@ prefix only, not on each fresh version under review.
 1. **Flash, first pass** (`--flash`). Review.
 2. **Pro, rewrite 1** — feed a specific, actionable critique back. Review.
 3. **Pro, rewrite 2** — one more critique-and-rewrite. Review.
-4. **Opus (you) writes it directly** — only after Flash + two Pro rewrites miss.
+4. **Opus writes it directly** — only after Flash + two Pro rewrites miss. On a Sonnet session
+   this is the `author` subagent; on an Opus session it's you.
 
 Cap: three DeepSeek attempts before Opus; don't loop past it. Announce the rung as you
 go. A chunk that keeps failing usually has a spec problem, not a model problem.

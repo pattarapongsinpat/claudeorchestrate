@@ -19,6 +19,13 @@ DeepSeek, and keeps *design, a short intent, and review* with Claude. The split:
 I provide the ask. You crystallize it into a short intent; Pro plans; you judge; DeepSeek
 implements; you judge again — everything except generation stays with you.
 
+**Which model is "you"?** By default run the session on **Sonnet** and invoke **Opus only as a
+subagent** for the two roles that need the strongest model: the `judge` subagent (both gates —
+plan vs intent, diff vs plan) and the `author` subagent (the terminal rung, when DeepSeek is
+exhausted). That holds Opus spend to the quality gates while the session runs cheap on Sonnet;
+the judge is also independent by construction (fresh context). Run the session directly on Opus
+instead and those roles are simply you, no subagents. See CLAUDE.md's "Session model" section.
+
 ## The goal: minimize Claude limit usage
 
 The point of this pipeline is to conserve *Claude usage* (my Pro-plan rate limits),
