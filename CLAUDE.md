@@ -1,3 +1,44 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository orientation
+
+This repo **is** the DeepSeek orchestration tooling itself — not a product that uses it. It
+ships one dispatcher script plus the prose rules (this file, `docs/`, `agents/`) that tell a
+Claude Code session how to drive the pipeline. Editing here means editing the pipeline's own
+tool and its operating rules.
+
+- **`implement_with_deepseek.py`** — the only code. A thin, dependency-light dispatcher: reads
+  a spec (file path, inline string, or stdin), sends it to DeepSeek via the OpenAI-compatible
+  client, prints the result. It holds **no escalation logic** — the ladder, review, and judging
+  are the Claude session's job, described in the rules below. Two system prompts: implementation
+  (default) and planning (`--plan`). Model is Pro by default, Flash via `--flash`.
+- **`docs/deepseek-pipeline.md`** — full rationale; this file is the condensed version of it.
+- **`agents/deepseek-implementer.md`** — subagent definition for parallel fan-out.
+- **`sample_spec.md`** — the spec format to imitate when authoring specs.
+
+### Running it
+
+Requires Python 3.10+ and the `openai` package (`pip install openai`). On this machine the
+interpreter is `python` (Python 3.13); `python3` is not on PATH.
+
+```
+python implement_with_deepseek.py spec.md            # Pro (default)
+python implement_with_deepseek.py spec.md --flash    # Flash (cheaper)
+python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
+python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+```
+
+`DEEPSEEK_API_KEY` resolves in order: environment → `~/.claude/.env` → repo-root `.env`. Copy
+`.env.example` to `.env` to set it locally (`.env` is gitignored).
+
+There is **no test suite, build step, or linter** — don't look for one. Verify a change to the
+dispatcher by running it against `sample_spec.md` (or `--plan`) and checking the output; a
+missing key exits with a clean message rather than a traceback.
+
+---
+
 # DeepSeek implementation pipeline
 
 Delegate spec-able *implementation* to DeepSeek (metered, my own account — cost is not a
@@ -56,7 +97,36 @@ python implement_with_deepseek.py spec.md            # Pro (default)
 python implement_with_deepseek.py spec.md --flash    # Flash (cheaper)
 python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
 python implement_with_deepseek.py spec.md -o out.py  # write to a file
+python implement_with_deepseek.py spec.md -c a.py -c b.py  # attach reference files
+python implement_with_deepseek.py spec.md --retries 5     # transient-error retries (default 3)
 ```
+
+Use `-c/--context` (repeatable) whenever the spec needs to reference existing code — pass
+the real files instead of pasting them into the spec text; they're sent as reference-only
+context (the model is told not to reproduce them), keeping the spec itself lean. `--retries`
+wires the OpenAI client's `max_retries` so a throttle/network blip retries with backoff
+instead of failing the dispatch.
+
+## The agentic loop (`deepseek_agent.py`)
+For multi-file, *testable* work, `deepseek_agent.py` drives DeepSeek as a coding agent: it
+navigates a target repo (`list_dir`, `grep`), reads/writes files, and runs a declared verify
+command, iterating until it passes or a step cap hits. It self-corrects against the tests
+(cheap DeepSeek calls), so Opus judges only the final diff — not every mechanical bug the tests
+already caught. On UNFINISHED (cap hit) it emits a failed-leg report diagnosing what's still
+broken, as the handoff to Opus.
+
+```
+python deepseek_agent.py plan.md --verify "pytest -q" --repo . --flash
+```
+
+- Requires a git repo with a CLEAN working tree; emits `git diff` at the end for review.
+- `--verify CMD` is the load-bearing signal — and the agent's ONLY runnable command (no
+  arbitrary shell). No verify command → no self-correction, so it collapses to one blind shot;
+  always pass one, and have the plan name it.
+- Outer ladder: `--flash` first → escalate to Pro (drop `--flash`) with a critique if the loop
+  stalls or the diff misses intent → Opus authors only if both miss.
+- Use the one-shot `implement_with_deepseek.py` for small single-file chunks — spinning up an
+  agent for a 20-line function is wasted overhead (the single/near-mechanical gate).
 
 ## The loop
 Spec (explicit acceptance criteria; lean, precise on *what correct means*, sparse on
