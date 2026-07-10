@@ -26,6 +26,16 @@ the bulk of the work. Two shapes lose that bet:
    independent chunks at once. A chunk your spec pins to near-transcription → write it
    inline; the spec already cost the code's worth of output.
 
+## Planning: draft on DeepSeek only when the spec would be long
+Writing the spec is Opus *output* — the expensive part. Offload it to DeepSeek only when
+it's actually big; otherwise the offload costs more than it saves.
+- **Easy / near-mechanical → reword and relay, don't plan.** Sharpen the request wording
+  and dispatch it straight to Pro to implement.
+- **Would need a long spec → let Pro draft it** (`--plan`), then judge that draft against
+  intent before implementing. You offload the writing but keep the design check.
+- **Short spec → just write it.** Judging a drafted plan ≈ designing it anyway; below a
+  few paragraphs the draft-then-judge round-trip costs more than it saves.
+
 ## Opus handles these directly — never DeepSeek
 - **All non-coding tasks use the current main model** — GitHub Actions, deployment,
   running files/commands, env setup, git. Do not spec these out to DeepSeek.
@@ -44,13 +54,17 @@ auto-loads from `~/.claude/.env` or a repo-root `.env` — no per-project setup.
 ```
 python implement_with_deepseek.py spec.md            # Pro (default)
 python implement_with_deepseek.py spec.md --flash    # Flash (cheaper)
+python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
 python implement_with_deepseek.py spec.md -o out.py  # write to a file
 ```
 
 ## The loop
 Spec (explicit acceptance criteria; lean, precise on *what correct means*, sparse on
 *how*) → dispatch → review against the spec → escalate on failure. See `sample_spec.md`
-for the spec format.
+for the spec format. Judging stays with Opus (independent gate); DeepSeek never judges its
+own work. To keep re-judges cheap, hold the spec text stable and run the rungs back-to-back
+so Claude Code's automatic prompt caching stays warm — a minor tailwind on the reused
+prefix only, not on each fresh version under review.
 
 ## Escalation ladder
 1. **Flash, first pass** (`--flash`). Review.

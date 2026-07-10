@@ -60,6 +60,35 @@ the bulk of the work. Two task shapes lose that bet — catch them before dispat
      it's near-transcription, the spec already cost the code's worth of output; dispatch
      + judge + integrate is pure loss on top. Delegate only chunks with real freedom.
 
+## Planning: draft on DeepSeek only when the spec would be long
+
+Writing the spec is Opus *output* — the single most Claude-token-expensive thing you do,
+and the real driver of quota drain on elaborate specs. So offload the *drafting* to
+DeepSeek, but only when it's genuinely worth a round-trip:
+
+- **Easy / near-mechanical → reword and relay, don't plan.** Sharpen the request wording
+  and dispatch it straight to Pro (`implement_with_deepseek.py`) to implement. No plan
+  step, no plan-judge.
+- **Would need a long spec → let Pro draft it** (`--plan` swaps the system prompt to a
+  planning persona: "produce a plan with acceptance criteria, do NOT write code"). Then
+  judge that draft **against intent** before implementing — this is where the acceptance
+  criteria are born, so it's necessarily intent-based. Once it passes, those criteria are
+  the contract the implementation is judged against.
+- **Short spec → just write it.** To judge whether a drafted plan is right, Opus has to
+  reconstruct the right design anyway; below a few paragraphs, "draft + judge + maybe
+  critique" costs more Opus than writing the lean spec once. The offload only pays on
+  specs long enough that transcription is the real cost.
+
+**The judge stays on Opus — always.** DeepSeek never judges its own work (same model,
+correlated blind spots → false passes), and judging is cheap Opus *input* anyway, so
+there is nothing to save by moving it off. Keep whole-unit review; don't build diff
+plumbing. Prompt caching is a *minor* tailwind here, not a cost pillar: inside Claude Code
+the judge's caching is automatic, it only discounts the reused spec/prior-turn prefix (not
+each fresh version under review), and it reliably cuts *dollar* cost — its effect on the
+Pro-plan rate limit specifically is smaller and less certain. The actionable part is just
+discipline: keep the spec text stable and run the rungs back-to-back so the cached prefix
+stays warm.
+
 ## What Opus does directly — not via DeepSeek
 
 The pipeline is only for spec-able *implementation*. The following stay with Opus in the

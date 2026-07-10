@@ -24,6 +24,7 @@ Usage:
   python implement_with_deepseek.py "spec text here"   # spec inline
   echo "spec" | python implement_with_deepseek.py      # spec from stdin
   python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+  python implement_with_deepseek.py req.md --plan      # draft a plan, not code
 """
 
 import os
@@ -41,6 +42,12 @@ SYSTEM = (
     "written by a senior engineer. Implement it exactly as specified. "
     "Do not redesign, do not add features beyond the spec, do not add commentary. "
     "Return only the code."
+)
+
+PLAN_SYSTEM = (
+    "You are a senior engineer. Produce a precise implementation plan / spec with "
+    "explicit acceptance criteria (interface, behavior, constraints, edge cases) for "
+    "the request below. Do NOT write the implementation. Output only the plan."
 )
 
 
@@ -75,8 +82,8 @@ def _resolve_api_key() -> str | None:
     return None
 
 
-def implement(spec: str, model: str = DEEPSEEK_MODEL) -> str:
-    """Send a spec to DeepSeek and return the implementation code."""
+def implement(spec: str, model: str = DEEPSEEK_MODEL, system: str = SYSTEM) -> str:
+    """Send a spec to DeepSeek and return the result (code by default, or a plan)."""
     api_key = _resolve_api_key()
     if not api_key:
         sys.exit("Error: DEEPSEEK_API_KEY not found. Set it in the environment, "
@@ -87,7 +94,7 @@ def implement(spec: str, model: str = DEEPSEEK_MODEL) -> str:
         resp = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": spec},
             ],
         )
@@ -111,11 +118,18 @@ def _read_spec(arg: str | None) -> str:
 
 
 def main() -> None:
+    # DeepSeek output is UTF-8; force stdout so non-ASCII (±, —, …) doesn't crash
+    # printing on a legacy console codepage (e.g. Windows cp874).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Implement a spec via DeepSeek (Pro by default).")
     parser.add_argument("spec", nargs="?", help="Spec file path or inline text (omit to read stdin).")
     parser.add_argument("-o", "--out", help="Write the implementation to this file.")
     parser.add_argument("--flash", action="store_true",
                         help="Use deepseek-v4-flash instead of pro (cheaper).")
+    parser.add_argument("--plan", action="store_true",
+                        help="Draft a plan/spec for the request instead of writing code.")
     args = parser.parse_args()
 
     spec = _read_spec(args.spec).strip()
@@ -123,7 +137,8 @@ def main() -> None:
         parser.error("No spec provided (file, inline text, or stdin).")
 
     model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
-    code = implement(spec, model=model)
+    system = PLAN_SYSTEM if args.plan else SYSTEM
+    code = implement(spec, model=model, system=system)
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:

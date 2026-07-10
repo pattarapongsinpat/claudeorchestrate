@@ -53,9 +53,14 @@ cp .env.example .env    # then paste your key
 ```
 python implement_with_deepseek.py spec.md            # Pro (default)
 python implement_with_deepseek.py spec.md --flash    # Flash (cheaper tier)
+python implement_with_deepseek.py req.md  --plan      # draft a plan/spec, not code
 python implement_with_deepseek.py "spec text"        # inline spec
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
 ```
+
+`--plan` swaps the system prompt so DeepSeek drafts an implementation plan with acceptance
+criteria instead of writing code — use it only when the spec would otherwise be long enough
+that writing it out (Opus output) is the real cost; for short specs, just write them.
 
 The script is only the dispatch mechanism — the escalation ladder and review live in
 `CLAUDE.md`, driven by Claude, not by the script.
