@@ -29,7 +29,9 @@ Opus rung is the real saving.
 | --- | --- |
 | `CLAUDE.md` | Condensed operating rules Claude Code loads per session. |
 | `docs/deepseek-pipeline.md` | Full rationale and the subagent judging rules. |
+| `pipeline.py` | Staged entry point: `plan` / `run` / `auto` — intent to plan to agent, with Opus judge gates between stages. |
 | `implement_with_deepseek.py` | The dispatcher: sends a spec to DeepSeek, returns code. |
+| `deepseek_agent.py` | Agentic coding loop: DeepSeek reads/writes files and runs a verify command, iterating until it passes. |
 | `agents/deepseek-implementer.md` | Subagent def for fanning out parallel chunks. |
 | `sample_spec.md` | Example of the spec format. |
 
@@ -56,7 +58,14 @@ python implement_with_deepseek.py spec.md --flash    # Flash (cheaper tier)
 python implement_with_deepseek.py req.md  --plan      # draft a plan/spec, not code
 python implement_with_deepseek.py "spec text"        # inline spec
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+python implement_with_deepseek.py spec.md -c a.py -c b.py  # attach reference files (repeatable)
+python implement_with_deepseek.py spec.md --retries 5     # retry transient errors (default 3)
 ```
+
+`-c/--context` (repeatable) attaches existing files as reference-only context ahead of the
+spec — the model is told not to reproduce them — so a spec that builds on existing code can
+stay lean instead of inlining it. `--retries` sets the OpenAI client's `max_retries`, so a
+rate-limit/timeout/connection blip backs off and retries instead of failing the dispatch.
 
 `--plan` swaps the system prompt so DeepSeek drafts an implementation plan with acceptance
 criteria instead of writing code — use it only when the spec would otherwise be long enough

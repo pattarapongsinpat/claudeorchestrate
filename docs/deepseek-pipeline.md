@@ -6,16 +6,25 @@ day-to-day use.
 
 ## Division of labor
 
-This pipeline delegates *implementation* to DeepSeek and keeps *design and review*
-with Claude. The split:
+This pipeline delegates *implementation* — and, for non-trivial tasks, *plan-drafting* — to
+DeepSeek, and keeps *design, a short intent, and review* with Claude. The split:
 
-- **Claude (you, flat-rate in Claude Code):** turn my guidelines into a precise
-  spec, review DeepSeek's output against that spec, drive escalation, and write
-  code directly only as the final fallback.
-- **DeepSeek (metered, billed to my own account — cost is not a concern):**
-  implement specs. Invoked via the dispatcher script, never designed by DeepSeek.
+- **Claude (you, flat-rate in Claude Code):** turn my ask into a short **intent** (a workable
+  goal, not a spec), judge DeepSeek Pro's plan against that intent, judge the resulting diff
+  against the plan, drive escalation, and write code directly only as the final fallback.
+- **DeepSeek (metered, billed to my own account — cost is not a concern):** for non-trivial
+  tasks, draft the plan from the short intent (Pro, `--plan`); then implement it. Invoked via
+  the dispatcher / agent, never the arbiter of its own work.
 
-I provide guidelines. You do everything else in the loop below.
+I provide the ask. You crystallize it into a short intent; Pro plans; you judge; DeepSeek
+implements; you judge again — everything except generation stays with you.
+
+**Which model is "you"?** By default run the session on **Sonnet** and invoke **Opus only as a
+subagent** for the two roles that need the strongest model: the `judge` subagent (both gates —
+plan vs intent, diff vs plan) and the `author` subagent (the terminal rung, when DeepSeek is
+exhausted). That holds Opus spend to the quality gates while the session runs cheap on Sonnet;
+the judge is also independent by construction (fresh context). Run the session directly on Opus
+instead and those roles are simply you, no subagents. See CLAUDE.md's "Session model" section.
 
 ## The goal: minimize Claude limit usage
 
@@ -60,24 +69,25 @@ the bulk of the work. Two task shapes lose that bet — catch them before dispat
      it's near-transcription, the spec already cost the code's worth of output; dispatch
      + judge + integrate is pure loss on top. Delegate only chunks with real freedom.
 
-## Planning: draft on DeepSeek only when the spec would be long
+## Intent and planning: Opus writes a short intent, Pro writes the plan
 
-Writing the spec is Opus *output* — the single most Claude-token-expensive thing you do,
-and the real driver of quota drain on elaborate specs. So offload the *drafting* to
-DeepSeek, but only when it's genuinely worth a round-trip:
+The single most Claude-token-expensive thing you do is *output*, and an elaborate spec is the
+worst of it. So Opus's front-end authoring is only a short **intent** — a workable goal, not a
+spec — and the plan itself is DeepSeek Pro's job for anything non-trivial:
 
-- **Easy / near-mechanical → reword and relay, don't plan.** Sharpen the request wording
-  and dispatch it straight to Pro (`implement_with_deepseek.py`) to implement. No plan
-  step, no plan-judge.
-- **Would need a long spec → let Pro draft it** (`--plan` swaps the system prompt to a
-  planning persona: "produce a plan with acceptance criteria, do NOT write code"). Then
-  judge that draft **against intent** before implementing — this is where the acceptance
-  criteria are born, so it's necessarily intent-based. Once it passes, those criteria are
-  the contract the implementation is judged against.
-- **Short spec → just write it.** To judge whether a drafted plan is right, Opus has to
-  reconstruct the right design anyway; below a few paragraphs, "draft + judge + maybe
-  critique" costs more Opus than writing the lean spec once. The offload only pays on
-  specs long enough that transcription is the real cost.
+- **Intent → current model, kept short.** Turn my ask into a clear, workable goal in a few
+  sentences. No acceptance criteria, no design write-up at this stage — the plan carries that.
+  This short intent is the only up-front authoring Opus does.
+- **Then the split is one question: is the task short and one-shottable?**
+  - **Yes → the current model just does it** — write it directly, or a single
+    `implement_with_deepseek.py` one-shot. No separate plan step, no plan-judge; below this bar
+    the draft-then-judge round-trip costs more than just doing it.
+  - **No → ALL planning goes to DeepSeek Pro** (`--plan` swaps the system prompt to a planning
+    persona: "produce a plan with acceptance criteria, do NOT write code"). Pro expands the
+    short intent into the plan. Opus does NOT author it.
+- **Judge the plan against the intent** before implementing — this is where the acceptance
+  criteria are born, so it's necessarily intent-based. Once it passes, those criteria are the
+  contract the implementation is judged against.
 
 **The judge stays on Opus — always.** DeepSeek never judges its own work (same model,
 correlated blind spots → false passes), and judging is cheap Opus *input* anyway, so
@@ -220,8 +230,11 @@ the units that don't depend on each other, and sequence the ones that do.
 ## What stays with Claude, always
 
 - All design and architecture decisions.
-- Spec authoring.
-- Review and the escalation decision.
+- The short intent (a workable goal, not a spec).
+- Judging: the plan against the intent, and the diff against the plan.
+- The escalation decision.
 - Anything novel, tricky, or where correctness is subtle and hard to spec.
 
-DeepSeek only ever implements against a spec you wrote.
+For non-trivial tasks DeepSeek Pro drafts the plan and DeepSeek implements against it; Claude
+judges both but authors neither. Only short, one-shottable tasks are planned (or written) by
+Claude directly.

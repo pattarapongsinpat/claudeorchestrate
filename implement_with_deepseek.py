@@ -25,6 +25,8 @@ Usage:
   echo "spec" | python implement_with_deepseek.py      # spec from stdin
   python implement_with_deepseek.py spec.md -o out.py  # write result to a file
   python implement_with_deepseek.py req.md --plan      # draft a plan, not code
+  python implement_with_deepseek.py spec.md -c lib.py  # attach one context file
+  python implement_with_deepseek.py spec.md -c a.py -c b.py   # multiple context files
 """
 
 import os
@@ -48,6 +50,12 @@ PLAN_SYSTEM = (
     "You are a senior engineer. Produce a precise implementation plan / spec with "
     "explicit acceptance criteria (interface, behavior, constraints, edge cases) for "
     "the request below. Do NOT write the implementation. Output only the plan."
+)
+
+CONTEXT_INSTRUCTION = (
+    "Below are existing files provided ONLY as reference/context. "
+    "Do NOT reproduce, echo, or re-output any of their contents unless the spec "
+    "explicitly asks you to. Use them only to understand the current codebase."
 )
 
 
@@ -82,20 +90,56 @@ def _resolve_api_key() -> str | None:
     return None
 
 
-def implement(spec: str, model: str = DEEPSEEK_MODEL, system: str = SYSTEM) -> str:
+def _read_context_files(paths: list[str]) -> list[tuple[str, str]]:
+    """Read context files, returning (path, content) for each. Exits on error."""
+    results: list[tuple[str, str]] = []
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            sys.exit(f"Error: Cannot read context file: {path}")
+        results.append((path, content))
+    return results
+
+
+def _build_message(spec: str, context_files: list[str] | None) -> str:
+    """Build the user message, prepending context files if any."""
+    if not context_files:
+        return spec
+
+    files = _read_context_files(context_files)
+    parts = [CONTEXT_INSTRUCTION]
+    for path, content in files:
+        parts.append(f"\n### {path}\n\n{content}")
+    parts.append("\n\n---\n\n" + spec)
+    return "".join(parts)
+
+
+def implement(
+    spec: str,
+    model: str = DEEPSEEK_MODEL,
+    system: str = SYSTEM,
+    context_files: list[str] | None = None,
+    max_retries: int = 3,
+) -> str:
     """Send a spec to DeepSeek and return the result (code by default, or a plan)."""
     api_key = _resolve_api_key()
     if not api_key:
         sys.exit("Error: DEEPSEEK_API_KEY not found. Set it in the environment, "
                  "in ~/.claude/.env, or in ./.env.")
 
-    client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
+    client = OpenAI(
+        api_key=api_key,
+        base_url=DEEPSEEK_BASE_URL,
+        max_retries=max_retries,
+    )
     try:
         resp = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": spec},
+                {"role": "user", "content": _build_message(spec, context_files)},
             ],
         )
     except Exception as e:
@@ -130,6 +174,10 @@ def main() -> None:
                         help="Use deepseek-v4-flash instead of pro (cheaper).")
     parser.add_argument("--plan", action="store_true",
                         help="Draft a plan/spec for the request instead of writing code.")
+    parser.add_argument("-c", "--context", action="append", default=None,
+                        help="Context file (can be repeated). Contents are sent as reference before the spec.")
+    parser.add_argument("--retries", type=int, default=3,
+                        help="Number of retries for transient errors (default: 3).")
     args = parser.parse_args()
 
     spec = _read_spec(args.spec).strip()
@@ -138,7 +186,15 @@ def main() -> None:
 
     model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
     system = PLAN_SYSTEM if args.plan else SYSTEM
-    code = implement(spec, model=model, system=system)
+    context_files = args.context or []  # normalize None -> []
+
+    code = implement(
+        spec,
+        model=model,
+        system=system,
+        context_files=context_files,
+        max_retries=args.retries,
+    )
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
