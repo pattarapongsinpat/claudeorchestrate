@@ -41,10 +41,11 @@ missing key exits with a clean message rather than a traceback.
 
 # DeepSeek implementation pipeline
 
-Delegate spec-able *implementation* to DeepSeek (metered, my own account — cost is not a
-concern); keep *design, spec-writing, and review* with Claude. The point is to conserve
-Claude rate-limit usage: DeepSeek does the heavy code generation you'd otherwise spend
-Claude quota on. Bias every choice toward resolving at DeepSeek and avoiding the Opus rung.
+Delegate spec-able *implementation* — and, for non-trivial tasks, *plan-drafting* — to DeepSeek
+(metered, my own account — cost is not a concern); keep *design, a short intent, and review*
+with Claude. The point is to conserve Claude rate-limit usage: DeepSeek does the heavy code
+generation (and the long plans) you'd otherwise spend Claude quota on. Bias every choice toward
+resolving at DeepSeek and avoiding the Opus rung.
 
 ## When to use it
 - **A direct instruction wins.** If I say "implement it directly / you write it / handle
@@ -67,15 +68,20 @@ the bulk of the work. Two shapes lose that bet:
    independent chunks at once. A chunk your spec pins to near-transcription → write it
    inline; the spec already cost the code's worth of output.
 
-## Planning: draft on DeepSeek only when the spec would be long
-Writing the spec is Opus *output* — the expensive part. Offload it to DeepSeek only when
-it's actually big; otherwise the offload costs more than it saves.
-- **Easy / near-mechanical → reword and relay, don't plan.** Sharpen the request wording
-  and dispatch it straight to Pro to implement.
-- **Would need a long spec → let Pro draft it** (`--plan`), then judge that draft against
-  intent before implementing. You offload the writing but keep the design check.
-- **Short spec → just write it.** Judging a drafted plan ≈ designing it anyway; below a
-  few paragraphs the draft-then-judge round-trip costs more than it saves.
+## Intent and planning: Opus writes a short intent, Pro writes the plan
+Opus *output* is the expensive part, so keep Opus's front-end authoring to a short **intent**
+and push the plan itself onto DeepSeek Pro.
+- **Intent → current model, kept short.** Turn what I want into a clear, workable goal — a few
+  sentences. Do NOT write a spec or acceptance criteria at this stage; that's the plan's job.
+  This short intent is the only up-front authoring Opus does.
+- **Planning splits on one question — is the task short and one-shottable?**
+  - **Yes → current model handles it.** Small enough to do in a single shot: the current model
+    just does it (write it directly, or one DeepSeek one-shot). No separate plan step.
+  - **No → ALL planning goes to DeepSeek Pro** (`--plan`). Pro expands the short intent into the
+    actual plan (the spec-equivalent). Opus does NOT author this plan.
+- **Then Opus judges.** Opus judges Pro's plan against the intent before implementing, and judges
+  the diff against the plan after. Every step except generation (intent, both judgments, the
+  escalation decision) stays on Opus.
 
 ## Opus handles these directly — never DeepSeek
 - **All non-coding tasks use the current main model** — GitHub Actions, deployment,
@@ -172,7 +178,9 @@ initiate them, wait on all, then batch the Opus rung at the end. Subagents don't
 subagents. Only parallelize chunks with no shared state or ordering dependency.
 
 ## Always Claude's
-Design/architecture, spec authoring, review, the escalation decision, and anything
-novel or subtle. DeepSeek only implements against a spec I wrote.
+Design/architecture, the short intent, judging (the plan against the intent and the diff
+against the plan), the escalation decision, and anything novel or subtle. For non-trivial
+tasks DeepSeek Pro drafts the plan and DeepSeek implements against it — Claude judges both,
+but authors neither.
 
 Full rationale and the subagent judging rules: `docs/deepseek-pipeline.md`.

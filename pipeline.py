@@ -14,7 +14,9 @@ pipeline exists to keep.
 
 Subcommands
 -----------
-  plan   Draft a plan from an intent (DeepSeek, --plan). Prints it for review.
+  plan   Expand a short intent into a plan (DeepSeek Pro). The intent is a workable goal
+         in a few sentences, NOT a spec - Pro writes the spec-level plan; you judge it.
+         (Short, one-shottable tasks skip this entirely - just do them on the current model.)
              python pipeline.py plan "INTENT or intent.md" [-o plan.md] [--flash]
 
   run    Run the agentic loop against an APPROVED plan file. Everything after the plan
