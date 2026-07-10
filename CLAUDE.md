@@ -120,6 +120,11 @@ python deepseek_agent.py plan.md --verify "pytest -q" --repo . --flash
 ```
 
 - Requires a git repo with a CLEAN working tree; emits `git diff` at the end for review.
+  `--allow-dirty` auto-stashes your uncommitted work first and restores it after, keeping the
+  diff purely the agent's own changes.
+- `--escalate` (with `--flash`) auto-climbs Flash→Pro: on a Flash UNFINISHED it resets the repo
+  to pristine and retries once on Pro. `--max-output N` tunes how much verify output the agent
+  sees (head+tail retained, default 8000 chars) so a big test log's failures aren't truncated away.
 - `--verify CMD` is the load-bearing signal — and the agent's ONLY runnable command (no
   arbitrary shell). No verify command → no self-correction, so it collapses to one blind shot;
   always pass one, and have the plan name it.

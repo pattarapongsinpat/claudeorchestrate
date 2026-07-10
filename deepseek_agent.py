@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """DeepSeek agentic coding loop: read/write files, list directories, grep,
-run a verify command, iterate until passing."""
+run a verify command, iterate until passing. Supports head+tail truncation
+(--max-output), dirty-tree auto-stash (--allow-dirty), and Flash→Pro
+escalation (--escalate)."""
 
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Tuple
 
 from openai import OpenAI
 from openai.types.shared_params import FunctionDefinition
@@ -142,8 +144,29 @@ SYSTEM_PROMPT = (
 MAX_TOOL_OUTPUT_CHARS = 6000
 
 
-def _resolve_repo_path(repo_dir: str) -> Path:
-    """Return resolved absolute repo path, ensure it's a clean git repo."""
+def _truncate_head_tail(text: str, max_chars: int) -> str:
+    """Truncate text keeping head (~1/4) and tail (~3/4) with an omitted-count marker."""
+    if len(text) <= max_chars:
+        return text
+    head_len = max_chars // 4
+    tail_len = max_chars - head_len
+    head = text[:head_len]
+    tail = text[-tail_len:]
+    omitted = len(text) - head_len - tail_len
+    return head + f"\n... [{omitted} chars omitted] ...\n" + tail
+
+
+def _truncate_output(text: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    """Truncate text to keep the tail (most recent output)."""
+    if len(text) <= max_chars:
+        return text
+    snippet = text[-max_chars:]
+    return f"... output truncated, showing last {max_chars} characters:\n{snippet}"
+
+
+def _resolve_repo_path(repo_dir: str, allow_dirty: bool) -> Tuple[Path, bool]:
+    """Return resolved absolute repo path and a dirty flag.
+    Exit if not a git repo or git status fails. On dirty without allow_dirty, exit."""
     repo = Path(repo_dir).resolve()
     # Check is a git repo
     git_dir = repo / ".git"
@@ -162,12 +185,13 @@ def _resolve_repo_path(repo_dir: str) -> Path:
         sys.exit("Error: git status command timed out.")
     if result.returncode != 0:
         sys.exit(f"Error: failed to run git status in {repo}.")
-    if result.stdout.strip():
+    is_dirty = bool(result.stdout.strip())
+    if is_dirty and not allow_dirty:
         sys.exit(
             f"Error: working tree in {repo} is not clean. "
             "Please commit or stash changes before running the agent."
         )
-    return repo
+    return repo, is_dirty
 
 
 def _safe_path(repo_root: Path, user_path: str) -> str | None:
@@ -184,14 +208,6 @@ def _safe_path(repo_root: Path, user_path: str) -> str | None:
     if target == repo_root or repo_root in target.parents:
         return str(target)
     return None
-
-
-def _truncate_output(text: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
-    """Truncate text to keep the tail (most recent output)."""
-    if len(text) <= max_chars:
-        return text
-    snippet = text[-max_chars:]
-    return f"... output truncated, showing last {max_chars} characters:\n{snippet}"
 
 
 def _list_dir(repo_root: Path, user_path: str) -> str:
@@ -290,63 +306,15 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     return output
 
 
-def main() -> None:
-    # Model output (summaries, diffs, failed-leg reports) is UTF-8; force stdout so
-    # non-ASCII (em dashes, arrows, box chars) can't crash printing on a legacy
-    # Windows console codepage.
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-
-    parser = argparse.ArgumentParser(
-        description="DeepSeek agentic coding loop: implement a task by reading/writing files, listing directories, searching with grep, and running a verify command."
-    )
-    parser.add_argument("task", type=str, help="Task: file path or inline text")
-    parser.add_argument("--verify", type=str, default=None, help="Verification command (e.g. 'pytest -q')")
-    parser.add_argument("--repo", type=str, default=".", help="Working directory (default: cwd)")
-    parser.add_argument("--flash", action="store_true", help="Use flash model instead of pro")
-    parser.add_argument("--max-steps", type=int, default=25, help="Maximum iterations (default: 25)")
-    args = parser.parse_args()
-
-    # ---------------------------------------------------------------
-    # Validate TASK
-    # ---------------------------------------------------------------
-    task_text: str
-    task_path = Path(args.task)
-    if task_path.is_file():
-        task_text = task_path.read_text(encoding="utf-8")
-    else:
-        task_text = args.task.strip()
-    if not task_text:
-        sys.exit("Error: TASK is empty.")
-
-    # ---------------------------------------------------------------
-    # Validate repo
-    # ---------------------------------------------------------------
-    repo = _resolve_repo_path(args.repo)
-
-    # ---------------------------------------------------------------
-    # Setup OpenAI client with DeepSeek
-    # ---------------------------------------------------------------
-    api_key = _resolve_api_key()
-    model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
-    client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
-
-    # ---------------------------------------------------------------
-    # Build messages
-    # ---------------------------------------------------------------
-    if args.verify:
-        verify_msg = f"Verification command: {args.verify}"
-    else:
-        verify_msg = "No verification command is configured. Complete the task without verification."
-
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Task: {task_text}\n\n{verify_msg}"},
-    ]
-
-    # ---------------------------------------------------------------
-    # Agent loop
-    # ---------------------------------------------------------------
+def run_agent_loop(
+    client: OpenAI,
+    model: str,
+    base_messages: List[dict[str, Any]],
+    args: argparse.Namespace,
+    repo: Path,
+) -> Tuple[bool, str | None, int, List[dict[str, Any]]]:
+    """Run the agent loop from scratch. Returns (finished, done_summary, step_count, full_messages)."""
+    messages = [m.copy() for m in base_messages]  # fresh copy each call
     step_count = 0
     finished = False
     done_summary: str | None = None
@@ -372,7 +340,7 @@ def main() -> None:
             break
 
         # Append the assistant message with tool calls to history
-        assistant_dict = {"role": "assistant", "content": assistant_msg.content or ""}
+        assistant_dict: dict[str, Any] = {"role": "assistant", "content": assistant_msg.content or ""}
         # OpenAI expects tool_calls as list of dicts
         assistant_dict["tool_calls"] = [
             {
@@ -494,7 +462,7 @@ def main() -> None:
                         )
                         output = proc.stdout + proc.stderr
                         exit_code = proc.returncode
-                        result = f"Exit code: {exit_code}\n\n{_truncate_output(output)}"
+                        result = f"Exit code: {exit_code}\n\n{_truncate_head_tail(output, args.max_output)}"
                     except subprocess.TimeoutExpired:
                         result = "Error: verify command timed out (120s)."
                     except Exception as e:
@@ -533,8 +501,133 @@ def main() -> None:
         if finished:
             break
 
+    return finished, done_summary, step_count, messages
+
+
+def main() -> None:
+    # Model output (summaries, diffs, failed-leg reports) is UTF-8; force stdout so
+    # non-ASCII (em dashes, arrows, box chars) can't crash printing on a legacy
+    # Windows console codepage.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    parser = argparse.ArgumentParser(
+        description="DeepSeek agentic coding loop: implement a task by reading/writing files, listing directories, searching with grep, and running a verify command. Supports head+tail truncation (--max-output), dirty-tree auto-stash (--allow-dirty), and Flash to Pro escalation (--escalate)."
+    )
+    parser.add_argument("task", type=str, help="Task: file path or inline text")
+    parser.add_argument("--verify", type=str, default=None, help="Verification command (e.g. 'pytest -q')")
+    parser.add_argument("--repo", type=str, default=".", help="Working directory (default: cwd)")
+    parser.add_argument("--flash", action="store_true", help="Use flash model instead of pro")
+    parser.add_argument("--max-steps", type=int, default=25, help="Maximum iterations (default: 25)")
+    parser.add_argument("--max-output", type=int, default=8000, help="Maximum kept characters for run_tests output (default: 8000)")
+    parser.add_argument("--allow-dirty", action="store_true", help="Allow dirty working tree: auto-stash before run and restore afterward")
+    parser.add_argument("--escalate", action="store_true", help="If flash attempt fails (UNFINISHED), reset repo and retry with Pro model")
+    args = parser.parse_args()
+
     # ---------------------------------------------------------------
-    # Determine final status
+    # Validate TASK
+    # ---------------------------------------------------------------
+    task_text: str
+    task_path = Path(args.task)
+    if task_path.is_file():
+        task_text = task_path.read_text(encoding="utf-8")
+    else:
+        task_text = args.task.strip()
+    if not task_text:
+        sys.exit("Error: TASK is empty.")
+
+    # ---------------------------------------------------------------
+    # Validate repo (with dirty handling)
+    # ---------------------------------------------------------------
+    repo, is_dirty = _resolve_repo_path(args.repo, args.allow_dirty)
+
+    # ---------------------------------------------------------------
+    # Auto-stash if dirty and allowed
+    # ---------------------------------------------------------------
+    stash_created = False
+    if is_dirty and args.allow_dirty:
+        try:
+            subprocess.run(
+                ["git", "stash", "push", "-u", "-m", "deepseek-agent-autostash"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            stash_created = True
+        except subprocess.CalledProcessError:
+            sys.exit("Error: failed to stash dirty working tree.")
+        except subprocess.TimeoutExpired:
+            sys.exit("Error: git stash timed out.")
+        except Exception as e:
+            sys.exit(f"Error stashing: {e}")
+
+    # ---------------------------------------------------------------
+    # Setup OpenAI client with DeepSeek
+    # ---------------------------------------------------------------
+    api_key = _resolve_api_key()
+    model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
+    client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
+
+    # ---------------------------------------------------------------
+    # Build base messages (system + user)
+    # ---------------------------------------------------------------
+    if args.verify:
+        verify_msg = f"Verification command: {args.verify}"
+    else:
+        verify_msg = "No verification command is configured. Complete the task without verification."
+
+    base_messages: List[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Task: {task_text}\n\n{verify_msg}"},
+    ]
+
+    # ---------------------------------------------------------------
+    # First attempt (Flash if args.flash, else Pro)
+    # ---------------------------------------------------------------
+    finished, done_summary, step_count, messages = run_agent_loop(
+        client, model, base_messages, args, repo
+    )
+
+    # ---------------------------------------------------------------
+    # Escalation: if --escalate, started on Flash, and UNFINISHED
+    # ---------------------------------------------------------------
+    if args.escalate and args.flash and not finished:
+        print("Flash attempt: UNFINISHED - escalating to Pro")
+        # Reset repo to pristine pre-run state
+        try:
+            subprocess.run(
+                ["git", "reset", "--hard", "HEAD"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "clean", "-fd"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"Error resetting repo for escalation: {e}")
+        except subprocess.TimeoutExpired:
+            sys.exit("Error: git reset/clean timed out.")
+        except Exception as e:
+            sys.exit(f"Error resetting repo: {e}")
+
+        # Re-run on Pro
+        model = DEEPSEEK_MODEL
+        finished, done_summary, step_count, messages = run_agent_loop(
+            client, model, base_messages, args, repo
+        )
+
+    # ---------------------------------------------------------------
+    # Determine final status (based on last attempt)
     # ---------------------------------------------------------------
     if finished and done_summary is not None:
         status = f"FINISHED after {step_count} step(s)."
@@ -551,7 +644,7 @@ def main() -> None:
     if done_summary:
         print(f"Agent summary: {done_summary}")
 
-    # Re-run verify if configured
+    # Re-run verify if configured (with head+tail truncation)
     if args.verify:
         try:
             proc = subprocess.run(
@@ -568,7 +661,7 @@ def main() -> None:
             else:
                 verdict = "FAIL"
             print(f"Final verify command ({args.verify}): {verdict}")
-            print(proc.stdout + proc.stderr)
+            print(_truncate_head_tail(proc.stdout + proc.stderr, args.max_output))
         except subprocess.TimeoutExpired:
             print("Final verify command timed out.")
         except Exception as e:
@@ -591,7 +684,7 @@ def main() -> None:
             fail_response = client.chat.completions.create(
                 model=model,
                 messages=fail_messages,
-                # No tools – just produce a plain text response
+                # No tools - just produce a plain text response
             )
             fail_text = fail_response.choices[0].message.content or ""
             print("\n--- Failed-leg report ---")
@@ -635,6 +728,30 @@ def main() -> None:
             print("No untracked files.")
     except Exception as e:
         print(f"Error listing untracked files: {e}")
+
+    # ---------------------------------------------------------------
+    # Pop stash if one was created (after all outputs)
+    # ---------------------------------------------------------------
+    if stash_created:
+        try:
+            pop_result = subprocess.run(
+                ["git", "stash", "pop"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if pop_result.returncode != 0:
+                print(
+                    "WARNING: git stash pop returned non-zero. "
+                    "Your stashed changes remain in the stash under the name "
+                    "'deepseek-agent-autostash' and must be restored manually "
+                    "(use 'git stash list' and 'git stash pop')."
+                )
+        except subprocess.TimeoutExpired:
+            print("WARNING: git stash pop timed out. Stash may need manual intervention.")
+        except Exception as e:
+            print(f"WARNING: error during git stash pop: {e}")
 
 
 if __name__ == "__main__":
