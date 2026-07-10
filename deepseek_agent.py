@@ -267,7 +267,8 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
         files = [abs_root]
     else:
         files = []
-        for dirpath, _, filenames in os.walk(abs_root):
+        for dirpath, dirnames, filenames in os.walk(abs_root):
+            dirnames[:] = [d for d in dirnames if d != ".git"]  # don't descend into .git
             for fn in filenames:
                 files.append(os.path.join(dirpath, fn))
 
@@ -504,6 +505,29 @@ def run_agent_loop(
     return finished, done_summary, step_count, messages
 
 
+def _run_verify(verify: str | None, repo: Path, max_output: int) -> Tuple[bool | None, str]:
+    """Run the verify command once. Returns (passed, report_text).
+
+    passed is None when no verify command is configured, True/False otherwise. The
+    report_text is ready to print (verdict line + head/tail output), or empty when
+    there is no verify command.
+    """
+    if not verify:
+        return None, ""
+    try:
+        proc = subprocess.run(
+            verify, shell=True, cwd=repo, capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"Final verify command ({verify}): TIMEOUT (120s)"
+    except Exception as e:
+        return False, f"Error running final verify command: {e}"
+    passed = proc.returncode == 0
+    verdict = "PASS" if passed else "FAIL"
+    body = _truncate_head_tail(proc.stdout + proc.stderr, max_output)
+    return passed, f"Final verify command ({verify}): {verdict}\n{body}"
+
+
 def main() -> None:
     # Model output (summaries, diffs, failed-leg reports) is UTF-8; force stdout so
     # non-ASCII (em dashes, arrows, box chars) can't crash printing on a legacy
@@ -589,12 +613,18 @@ def main() -> None:
     finished, done_summary, step_count, messages = run_agent_loop(
         client, model, base_messages, args, repo
     )
+    verify_passed, verify_report = _run_verify(args.verify, repo, args.max_output)
+    # Success means the tests actually pass. Only when no verify command is configured
+    # do we fall back to "the agent stopped on its own" as the success signal.
+    success = verify_passed if verify_passed is not None else finished
 
     # ---------------------------------------------------------------
-    # Escalation: if --escalate, started on Flash, and UNFINISHED
+    # Escalation: --escalate, started on Flash, and the attempt did NOT succeed
+    # (verify still failing, or step cap hit) — not merely "did the loop stop".
     # ---------------------------------------------------------------
-    if args.escalate and args.flash and not finished:
-        print("Flash attempt: UNFINISHED - escalating to Pro")
+    if args.escalate and args.flash and not success:
+        reason = "UNFINISHED (hit step cap)" if not finished else "verify FAILING"
+        print(f"Flash attempt: {reason} - escalating to Pro")
         # Reset repo to pristine pre-run state
         try:
             subprocess.run(
@@ -625,17 +655,26 @@ def main() -> None:
         finished, done_summary, step_count, messages = run_agent_loop(
             client, model, base_messages, args, repo
         )
+        verify_passed, verify_report = _run_verify(args.verify, repo, args.max_output)
+        success = verify_passed if verify_passed is not None else finished
 
     # ---------------------------------------------------------------
-    # Determine final status (based on last attempt)
+    # Determine final status — keyed off the real verify result when there is
+    # one, so "the agent stopped" cannot masquerade as success.
     # ---------------------------------------------------------------
-    if finished and done_summary is not None:
-        status = f"FINISHED after {step_count} step(s)."
-    elif finished:
-        # assistant plain text, no done call
-        status = f"FINISHED (no done call) after {step_count} step(s)."
+    if args.verify:
+        if verify_passed:
+            status = f"SUCCESS - verify PASSING after {step_count} step(s)."
+        else:
+            why = "hit step cap" if not finished else "agent stopped without passing"
+            status = f"INCOMPLETE - verify FAILING ({why}) after {step_count} step(s)."
     else:
-        status = f"UNFINISHED (hit step cap of {args.max_steps}) after {step_count} step(s)."
+        if finished and done_summary is not None:
+            status = f"FINISHED after {step_count} step(s)."
+        elif finished:
+            status = f"FINISHED (no done call) after {step_count} step(s)."
+        else:
+            status = f"UNFINISHED (hit step cap of {args.max_steps}) after {step_count} step(s)."
 
     # ---------------------------------------------------------------
     # Final output
@@ -643,42 +682,23 @@ def main() -> None:
     print(status)
     if done_summary:
         print(f"Agent summary: {done_summary}")
-
-    # Re-run verify if configured (with head+tail truncation)
-    if args.verify:
-        try:
-            proc = subprocess.run(
-                args.verify,
-                shell=True,
-                cwd=repo,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            final_exit = proc.returncode
-            if final_exit == 0:
-                verdict = "PASS"
-            else:
-                verdict = "FAIL"
-            print(f"Final verify command ({args.verify}): {verdict}")
-            print(_truncate_head_tail(proc.stdout + proc.stderr, args.max_output))
-        except subprocess.TimeoutExpired:
-            print("Final verify command timed out.")
-        except Exception as e:
-            print(f"Error running final verify command: {e}")
+    if verify_report:
+        print(verify_report)
 
     # ---------------------------------------------------------------
-    # Failed-leg report (only on UNFINISHED)
+    # Failed-leg report — whenever the run did not truly succeed (verify still
+    # failing, or step cap hit), not merely when the loop hit the cap.
     # ---------------------------------------------------------------
-    if not finished:
+    if not success:
         # Make one additional model call asking for a failure report
         try:
             fail_messages = messages.copy()
             fail_messages.append({
                 "role": "user",
                 "content": (
-                    "You have hit the step limit. In plain prose, summarize what you changed, "
-                    "what is still failing, and your best diagnosis of why you could not finish."
+                    "The task is not complete - the verification is still failing, or you "
+                    "stopped without making it pass. In plain prose, summarize what you "
+                    "changed, what is still failing, and your best diagnosis of why."
                 )
             })
             fail_response = client.chat.completions.create(
