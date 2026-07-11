@@ -11,7 +11,7 @@ Role in the workflow:
 
 Escalation ladder (driven by Claude in Claude Code, NOT by this script):
   Flash first pass -> Pro (up to 2 rewrites) -> Claude (Opus) writes it directly.
-  This script is just the dispatch mechanism Claude calls at each DeepSeek rung.
+  This script is just the dispatch mechanism Claude calls at each DeepSeek stage.
 
 Key resolution (no per-project setup needed):
   DEEPSEEK_API_KEY is read from, in order: the environment, then ~/.claude/.env,

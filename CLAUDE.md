@@ -43,9 +43,9 @@ missing key exits with a clean message rather than a traceback.
 
 Delegate spec-able *implementation* — and, for non-trivial tasks, *plan-drafting* — to DeepSeek
 (metered, my own account — cost is not a concern); keep *design, a short intent, and review*
-with Claude. The point is to conserve Claude rate-limit usage: DeepSeek does the heavy code
+with Claude. The point is to conserve Claude subscription usage: DeepSeek does the heavy code
 generation (and the long plans) you'd otherwise spend Claude quota on. Bias every choice toward
-resolving at DeepSeek and avoiding the Opus rung.
+resolving at DeepSeek and avoiding the Opus stage.
 
 ## Session model: Sonnet for the session, Opus for judging and authorship
 Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
@@ -55,11 +55,11 @@ running the pipeline. Opus is invoked *as a subagent* only for two roles:
   against the intent, and the diff against the plan. It returns PASS/FAIL with specific
   reasons and is independent by construction (fresh context, no anchoring on the session).
 - **Terminal authorship → the `author` subagent** (Opus). When DeepSeek exhausts the ladder,
-  the failed leg goes to `author`, which writes the last rung directly and verifies it — not
+  the failed leg goes to `author`, which writes the last stage directly and verifies it — not
   to Sonnet.
 
 This holds Opus usage to the high-value gates while the bulk of the session runs cheap on
-Sonnet. Everywhere below, "the current model" is Sonnet in this mode and "the Opus rung" is
+Sonnet. Everywhere below, "the current model" is Sonnet in this mode and "the Opus stage" is
 the `author` subagent. If you instead run the session directly on Opus, these are just you —
 no subagents needed.
 
@@ -175,7 +175,7 @@ for small/trusted tasks only; you still review the final diff. Args after the pl
 Spec (explicit acceptance criteria; lean, precise on *what correct means*, sparse on
 *how*) → dispatch → review against the spec → escalate on failure. See `sample_spec.md`
 for the spec format. Judging stays with Opus (independent gate); DeepSeek never judges its
-own work. To keep re-judges cheap, hold the spec text stable and run the rungs back-to-back
+own work. To keep re-judges cheap, hold the spec text stable and run the stages back-to-back
 so Claude Code's automatic prompt caching stays warm — a minor tailwind on the reused
 prefix only, not on each fresh version under review.
 
@@ -186,13 +186,13 @@ prefix only, not on each fresh version under review.
 4. **Opus writes it directly** — only after Flash + two Pro rewrites miss. On a Sonnet session
    this is the `author` subagent; on an Opus session it's you.
 
-Cap: three DeepSeek attempts before Opus; don't loop past it. Announce the rung as you
+Cap: three DeepSeek attempts before Opus; don't loop past it. Announce the stage as you
 go. A chunk that keeps failing usually has a spec problem, not a model problem.
 
 ## Parallel work
 For genuinely independent chunks, fan out ~3–5 `deepseek-implementer` subagents (each
 runs Flash → Pro → Pro and judges on Opus, escalating failed legs back to me). I
-initiate them, wait on all, then batch the Opus rung at the end. Subagents don't spawn
+initiate them, wait on all, then batch the Opus stage at the end. Subagents don't spawn
 subagents. Only parallelize chunks with no shared state or ordering dependency.
 
 ## Always Claude's

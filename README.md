@@ -3,7 +3,7 @@
 A small orchestration pipeline for [Claude Code](https://claude.com/claude-code) that
 delegates spec-able **implementation** work to [DeepSeek](https://deepseek.com) while
 keeping **design, spec-writing, and review** with Claude. The goal is to conserve Claude
-Pro-plan rate-limit usage: DeepSeek does the heavy code generation you'd otherwise spend
+Pro-plan subscription usage: DeepSeek does the heavy code generation you'd otherwise spend
 Claude quota on, and Claude only writes code directly as the final fallback.
 
 ## How it works
@@ -19,9 +19,9 @@ guidelines ──▶ Claude writes a spec ──▶ DeepSeek implements ──�
 Claude authors a precise spec (acceptance criteria: interface, behavior, constraints,
 edge cases), dispatches it to DeepSeek, and reviews the returned code against that spec.
 On a miss it climbs the ladder — a Flash pass, two Pro rewrites, then Opus writes it
-directly as the terminal rung. DeepSeek dollars are billed to your own account and are
+directly as the terminal stage. DeepSeek dollars are billed to your own account and are
 not the constraint; the constraint is Claude quota, so every chunk resolved before the
-Opus rung is the real saving.
+Opus stage is the real saving.
 
 ## Layout
 

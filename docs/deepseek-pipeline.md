@@ -21,19 +21,19 @@ implements; you judge again — everything except generation stays with you.
 
 **Which model is "you"?** By default run the session on **Sonnet** and invoke **Opus only as a
 subagent** for the two roles that need the strongest model: the `judge` subagent (both gates —
-plan vs intent, diff vs plan) and the `author` subagent (the terminal rung, when DeepSeek is
+plan vs intent, diff vs plan) and the `author` subagent (the terminal stage, when DeepSeek is
 exhausted). That holds Opus spend to the quality gates while the session runs cheap on Sonnet;
 the judge is also independent by construction (fresh context). Run the session directly on Opus
 instead and those roles are simply you, no subagents. See CLAUDE.md's "Session model" section.
 
 ## The goal: minimize Claude limit usage
 
-The point of this pipeline is to conserve *Claude usage* (my Pro-plan rate limits),
+The point of this pipeline is to conserve *Claude usage* (my Pro-plan subscription usage limits),
 not dollars. Writing implementation code is the most Claude-token-expensive thing
 you do; DeepSeek generation is cheap and billed to my own account. So every chunk
 DeepSeek implements is heavy generation you did NOT spend Claude quota on. The
 pipeline wins whenever a chunk resolves at DeepSeek (Pro) instead of climbing to
-the Opus rung — because on escalation you pay the spec + reviews *and* the full
+the Opus stage — because on escalation you pay the spec + reviews *and* the full
 Opus write, which is more Claude usage than just writing it directly. So: bias
 every choice toward resolving at Pro and avoiding needless Opus escalation.
 
@@ -95,8 +95,8 @@ there is nothing to save by moving it off. Keep whole-unit review; don't build d
 plumbing. Prompt caching is a *minor* tailwind here, not a cost pillar: inside Claude Code
 the judge's caching is automatic, it only discounts the reused spec/prior-turn prefix (not
 each fresh version under review), and it reliably cuts *dollar* cost — its effect on the
-Pro-plan rate limit specifically is smaller and less certain. The actionable part is just
-discipline: keep the spec text stable and run the rungs back-to-back so the cached prefix
+Pro-plan subscription usage limit specifically is smaller and less certain. The actionable part is just
+discipline: keep the spec text stable and run the stages back-to-back so the cached prefix
 stays warm.
 
 ## What Opus does directly — not via DeepSeek
@@ -140,7 +140,7 @@ For each unit of implementation work:
    enough not to rewrite the code in prose.** The spec is itself Claude output,
    so it costs quota too. Aim for the leanest spec that still lets Pro resolve the
    task — enough acceptance criteria to keep Pro on target and avoid the expensive
-   Opus rung, without spelling out the implementation line by line (at which point
+   Opus stage, without spelling out the implementation line by line (at which point
    you've spent as much Claude usage as just writing it). Precise on *what correct
    means*, sparse on *how to do it*.
 
@@ -154,7 +154,7 @@ For each unit of implementation work:
 
 ## The escalation ladder
 
-The goal is to resolve at DeepSeek (Flash or Pro) and avoid the Opus rung (which
+The goal is to resolve at DeepSeek (Flash or Pro) and avoid the Opus stage (which
 costs the most Claude usage). Bias toward getting it right at the DeepSeek tiers,
 but don't loop forever — a task that survives the ladder has a spec problem or
 genuinely needs you.
@@ -164,19 +164,19 @@ genuinely needs you.
 3. **Pro, rewrite attempt 2** — one more critique-and-rewrite on Pro. Review.
 4. **Opus (you) writes it directly** — if DeepSeek hasn't hit the spec after the
    Flash pass and two Pro rewrites, stop delegating and implement it yourself
-   in-session. This is the final rung; don't loop past it.
+   in-session. This is the final stage; don't loop past it.
 
 Notes:
 - The ladder starts cheap and climbs on capability: Flash for the first pass, Pro
   for the two rewrites (Flash's misses are usually fixable with a concrete critique
   at the stronger tier), Opus only when DeepSeek can't. DeepSeek dollar cost isn't
-  the constraint, so the point of climbing is capability, not price — every rung
+  the constraint, so the point of climbing is capability, not price — every stage
   resolved before Opus is the real Claude-usage saving.
 - The cap is one Flash pass plus two Pro rewrites (three DeepSeek attempts total)
   before Opus. Do not exceed it — continuing to bounce a failing spec wastes
   round-trips and usually means the spec, not the model, is the problem. When you
-  hit the Opus rung, say so.
-- Announce which rung you're on as you go, so the ladder is visible.
+  hit the Opus stage, say so.
+- Announce which stage you're on as you go, so the ladder is visible.
 
 ## When a rewrite is needed
 
@@ -192,7 +192,7 @@ Claude Code can dispatch multiple subagents concurrently, each running one
 independent chunk's DeepSeek ladder — Flash → Pro → Pro — and judging the result
 against its own spec on Opus. Parallelism works here because that judge loop is
 self-contained per chunk, so the chunks don't have to funnel through a single
-reviewer. The subagents do the DeepSeek rungs; the Opus authorship rung stays with
+reviewer. The subagents do the DeepSeek stages; the Opus authorship stage stays with
 the main session. So:
 
 - **I (main session) initiate subagents.** Fan-out is my call — I decompose the
@@ -201,15 +201,15 @@ the main session. So:
 - **Each subagent runs Flash → Pro → Pro on its chunk, judging on Opus.** A subagent
   judging DeepSeek's output is NOT self-review: DeepSeek wrote the code, the subagent
   grades it against the spec, so author and reviewer are different models. It does
-  not reach the Opus authorship rung itself — that stays with me.
+  not reach the Opus authorship stage itself — that stays with me.
 - **Every subagent reports back — pass or fail.** If its chunk passed at Flash or
   Pro, it returns the accepted code. If it exhausted the Flash pass and both Pro
   rewrites without passing, it returns the *failed leg*: the best attempt plus a
   precise diagnosis of the remaining spec violations.
-- **I wait on all subagents, then batch the Opus rung at the end.** Rather than
+- **I wait on all subagents, then batch the Opus stage at the end.** Rather than
   writing each failure the moment it escalates, I let all the parallel DeepSeek work
   finish, collect every failed leg, and implement them all myself in one Opus pass
-  at the end. Batching keeps the expensive rung to a single focused sitting instead
+  at the end. Batching keeps the expensive stage to a single focused sitting instead
   of interleaving it with coordination.
 - **Only parallelize genuinely independent chunks** — separate modules/functions,
   no shared state, no ordering dependency. If chunk B's spec depends on how chunk
@@ -220,7 +220,7 @@ the main session. So:
   the end are un-judged — once the author is the top model, independent review is
   gone by construction, so the real final check is running it. If Opus-written code
   breaks, that surfaces when it's run and gets fixed in a following message.
-- **Watch the batched Opus rung.** If most chunks fail through to me, that end-of-run
+- **Watch the batched Opus stage.** If most chunks fail through to me, that end-of-run
   batch becomes one large sequential Opus write — a signal the specs need tightening,
   not a reason to add more workers.
 
