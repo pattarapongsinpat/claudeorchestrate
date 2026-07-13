@@ -26,31 +26,29 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 
 ## [1] Routing — Sonnet
 
-Every coding task opens with one line before any code:
+**Default is delegate.** Two things sit outside the gate: `inline` (Claude writes it — ONLY when
+instructed or for a diagnosis-coupled trivial edit; the explicit exception, not a shape), and
+non-coding/operational tasks (git, commands, deploys, env — not routed, stay with the session).
+Everything else emits one line choosing the shape:
 
 ```
-Routing: <inline | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+Routing: <deepseek-oneshot | pipeline> — <one-clause reason>
 ```
 
-**`deepseek-oneshot` is the floor** for spec-able generation — Claude does not write code by size.
-`inline` is not a size route; it's allowed only in two context-triggered cases, so there's no
-"small enough to just write it" judgment.
-
-**Tripwire (hard)** — forbids `oneshot` so it can't absorb agent-scale work. "Files" = files
-**edited**; reference reads (oneshot's `-c`) never count.
-- Forbids `oneshot`: ≥3 files edited OR ≥2 languages OR >~120 net-new logic lines OR
-  testable/needs a verify loop → must be `agent`/`pipeline`. (Oneshot may read unlimited context,
-  edit one or two files.)
-
-**Testability is the hard discriminator** — has/needs tests → `agent`/`pipeline`, never `oneshot`.
-**Default upward on ambiguity** — unsure, take the one further from `inline`.
+**Tripwire (hard)** — forbids `oneshot` so it can't absorb pipeline-scale work. "Files" = files
+**edited**; reference reads (`-c`) never count. ≥3 files edited OR ≥2 languages OR >~120 net-new
+logic lines OR testable/needs a verify loop → **pipeline**. **Testability is the hard
+discriminator** — has/needs tests → pipeline, never oneshot. **Default upward on ambiguity** →
+pipeline.
 
 | Route | When | Tool |
 | --- | --- | --- |
-| **inline** | ONLY "you write it" OR a trivial edit coupled to a live diagnosis | Sonnet writes it |
-| **deepseek-oneshot** | floor: one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
-| **deepseek-agent** | multi-file OR testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
-| **pipeline** | non-trivial, needs a plan drafted | `pipeline.py` (the default agent-scale entry) |
+| **inline** (exception) | ONLY "you write it" OR a trivial edit coupled to a live diagnosis | Sonnet writes it |
+| **deepseek-oneshot** (floor) | one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
+| **pipeline** | anything larger or testable; drafts+judges a plan, then runs the agent | `pipeline.py` |
+
+The **agent** is not a start-phase route — it's pipeline's back half, run automatically after the
+plan gate. Bare `deepseek_agent.py` is used only to re-run an already-judged plan.
 
 Enforcement: a PreToolUse hook (`hooks/routing_gate.py`) blocks a code Write/Edit until a routing
 decision is recorded in `.claude/routing-ack`.

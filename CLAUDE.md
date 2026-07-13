@@ -48,42 +48,37 @@ generation (and the long plans) you'd otherwise spend Claude quota on. Bias ever
 resolving at DeepSeek and avoiding the Opus stage.
 
 ## Routing gate — pick the DeepSeek shape (default: delegate)
-**Every coding task delegates to DeepSeek by default; the only open question is which shape.** Emit
-one line at the top of your response before any implementation code:
+**Every coding task delegates to DeepSeek by default.** Two things sit outside the gate:
+
+- **`inline` — the explicit exception, not a shape.** Claude writes the code itself ONLY when (a) I
+  said "you write it," or (b) it's a trivial edit tightly coupled to a live diagnosis. This is the
+  only case Claude authors code, and it's never chosen because a change *looks* small. Record it as
+  `Routing: inline — <which trigger>` (the hook and audit trail still want the line).
+- **Non-coding/operational tasks** — running git, commands, deploys, env — aren't routed at all;
+  they stay with the session.
+
+Everything else delegates. Emit one line before any implementation code, choosing the shape:
 
 ```
-Routing: <inline | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+Routing: <deepseek-oneshot | pipeline> — <one-clause reason>
 ```
 
-This line **selects the shape** — it is NOT a decide-whether-to-delegate gate; that's already
-settled by the floor. `deepseek-oneshot` is the floor for all spec-able generation. `inline` (Claude
-writes it) is the rare **explicit** exception, allowed ONLY when (a) I said "you write it," or (b)
-it's a trivial edit tightly coupled to a live diagnosis — never chosen because a change looks small.
-A missing Routing line before code is a process error. (Non-coding/operational tasks — running git,
-commands, deploys, env — aren't routed at all; they stay with the session.)
+- **deepseek-oneshot** — the floor: one or two files edited, no test loop, up to ~120 net-new lines;
+  reads any needed context via `-c` → `implement_with_deepseek.py`.
+- **pipeline** — anything larger or testable → `pipeline.py`: intent → Pro plan → **Opus judges the
+  plan** → agent → verify → **Opus judges the diff**. The agent stage runs **automatically after the
+  plan gate** — you do not route to it separately.
 
-**Tripwire (hard).** Forbids the *light* route so oneshot can't quietly absorb agent-scale work —
-a forcing function, not a classifier. **"Files" means files EDITED/written; files read for reference
-(e.g. passed to oneshot via `-c`) never count.**
-- **Forbids `oneshot`:** **≥3 files edited** OR ≥2 languages OR **>~120 net-new logic lines** OR the
-  task is testable / needs a verify loop → must be `agent`/`pipeline`. Oneshot may read as many
-  context files as it needs and edit one or two. But the moment it needs a third edited file **or**
-  wants tests, it's off the table — those are exactly the gates oneshot skips.
+**Tripwire (hard)** — forbids the light route so oneshot can't absorb pipeline-scale work. **"Files"
+means files EDITED/written; reference reads (e.g. `-c`) never count.** ≥3 files edited OR ≥2 languages
+OR >~120 net-new logic lines OR the task is testable / needs a verify loop → **pipeline**.
+**Testability is the hard discriminator:** has or needs tests → pipeline, never oneshot. **Default
+upward on ambiguity:** unsure → pipeline.
 
-The routes:
-- **inline (Claude writes it)** — ONLY when (a) I told you "write it yourself," or (b) it's a trivial
-  edit tightly coupled to a live diagnosis (the debugging carve-out). Both are context-triggered, not
-  size-judged — never pick `inline` just because the change looks small.
-- **deepseek-oneshot** — the floor for spec-able work: one or two self-contained files/functions, no
-  test loop, up to ~120 net-new lines; reads any needed context via `-c` → `implement_with_deepseek.py`.
-- **deepseek-agent** — multi-file OR testable (has/needs a verify command) → `deepseek_agent.py --verify`.
-- **pipeline** — non-trivial / needs a plan → `pipeline.py` (intent → Pro plan → judge → agent → judge).
-
-**Testability is the hard discriminator:** if the task has or needs tests, it is `agent`/`pipeline`,
-never `oneshot` — the verify loop is the point. **Default upward on ambiguity:** unsure between two
-routes, take the one **further from `inline`** (more machinery, more gates). The gates below are the
-rationale; this line is what you execute. (A repo hook may enforce that the Routing decision was
-recorded before a code Write/Edit — see `docs/deepseek-pipeline.md`.)
+A missing Routing line before code is a process error. (`deepseek-agent` alone is just pipeline's
+execute stage — use it only to re-run an already-judged plan: `Routing: deepseek-agent — re-run
+approved plan`. A repo hook may enforce that the Routing decision was recorded before a code
+Write/Edit — see `docs/deepseek-pipeline.md`.)
 
 ## Session model: Sonnet for the session, Opus for judging and authorship
 Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
