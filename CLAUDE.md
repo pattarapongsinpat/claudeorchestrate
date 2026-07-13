@@ -47,17 +47,20 @@ with Claude. The point is to conserve Claude subscription usage: DeepSeek does t
 generation (and the long plans) you'd otherwise spend Claude quota on. Bias every choice toward
 resolving at DeepSeek and avoiding the Opus stage.
 
-## Routing gate — DO THIS FIRST, every coding task
-Before writing **any** implementation code, emit one line at the top of your response:
+## Routing gate — pick the DeepSeek shape (default: delegate)
+**Every coding task delegates to DeepSeek by default; the only open question is which shape.** Emit
+one line at the top of your response before any implementation code:
 
 ```
 Routing: <inline | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-No Routing line before code is a process error. **`deepseek-oneshot` is the floor for all spec-able
-generation** — Claude does not write implementation code by size. `inline` is not a size route; it
-is allowed ONLY in two context-triggered cases (below), so there is no "is this small enough for me
-to just write it" judgment to make.
+This line **selects the shape** — it is NOT a decide-whether-to-delegate gate; that's already
+settled by the floor. `deepseek-oneshot` is the floor for all spec-able generation. `inline` (Claude
+writes it) is the rare **explicit** exception, allowed ONLY when (a) I said "you write it," or (b)
+it's a trivial edit tightly coupled to a live diagnosis — never chosen because a change looks small.
+A missing Routing line before code is a process error. (Non-coding/operational tasks — running git,
+commands, deploys, env — aren't routed at all; they stay with the session.)
 
 **Tripwire (hard).** Forbids the *light* route so oneshot can't quietly absorb agent-scale work —
 a forcing function, not a classifier. **"Files" means files EDITED/written; files read for reference
