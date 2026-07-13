@@ -1,32 +1,9 @@
 #!/usr/bin/env python3
-"""
-DeepSeek implementation dispatcher.
+"""DeepSeek implementation dispatcher: send a spec, return code (or a plan via --plan).
 
-Role in the workflow:
-  1. You give Claude guidelines -> Claude writes a precise spec (flat-rate, in Claude Code).
-  2. This script sends that spec to DeepSeek -> returns the implementation.
-     Pro is the default, Flash via --flash (cheaper).
-  3. The implementation goes back to Claude in Claude Code -> Claude reviews it
-     against the spec (flat-rate).
-
-Escalation ladder (driven by Claude in Claude Code, NOT by this script):
-  Flash first pass -> Pro (up to 2 rewrites) -> Claude (Opus) writes it directly.
-  This script is just the dispatch mechanism Claude calls at each DeepSeek stage.
-
-Key resolution (no per-project setup needed):
-  DEEPSEEK_API_KEY is read from, in order: the environment, then ~/.claude/.env,
-  then ./.env in the current project. Put the key in one .env and every project
-  can dispatch without its own copy.
-
-Usage:
-  python implement_with_deepseek.py spec.md            # spec from a file (Pro)
-  python implement_with_deepseek.py spec.md --flash    # cheaper Flash tier
-  python implement_with_deepseek.py "spec text here"   # spec inline
-  echo "spec" | python implement_with_deepseek.py      # spec from stdin
-  python implement_with_deepseek.py spec.md -o out.py  # write result to a file
-  python implement_with_deepseek.py req.md --plan      # draft a plan, not code
-  python implement_with_deepseek.py spec.md -c lib.py  # attach one context file
-  python implement_with_deepseek.py spec.md -c a.py -c b.py   # multiple context files
+The escalation ladder lives in the Claude session, not here; this is just the dispatch.
+DEEPSEEK_API_KEY resolves from the environment, then ~/.claude/.env, then ./.env.
+See CLAUDE.md for usage and the full workflow.
 """
 
 import os
@@ -35,8 +12,8 @@ import argparse
 
 from openai import OpenAI  # DeepSeek is OpenAI-compatible
 
-DEEPSEEK_MODEL = "deepseek-v4-pro"            # default: stronger, still dirt cheap
-DEEPSEEK_FLASH = "deepseek-v4-flash"          # cheaper tier via --flash
+DEEPSEEK_MODEL = "deepseek-v4-pro"            # default
+DEEPSEEK_FLASH = "deepseek-v4-flash"          # --flash
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 SYSTEM = (
@@ -143,9 +120,7 @@ def implement(
             ],
         )
     except Exception as e:
-        # Surface a clean message instead of a raw traceback when a call fails
-        # (throttling, auth, network). Claude, driving this in Claude Code, can
-        # read this and decide whether to retry or escalate a tier.
+        # Clean message instead of a raw traceback on throttle/auth/network failures.
         sys.exit(f"DeepSeek call failed ({model}): {e}")
 
     return resp.choices[0].message.content
@@ -158,12 +133,11 @@ def _read_spec(arg: str | None) -> str:
     if os.path.isfile(arg):
         with open(arg, "r", encoding="utf-8") as f:
             return f.read()
-    return arg  # treat as inline spec text
+    return arg  # inline spec text
 
 
 def main() -> None:
-    # DeepSeek output is UTF-8; force stdout so non-ASCII (±, —, …) doesn't crash
-    # printing on a legacy console codepage (e.g. Windows cp874).
+    # Force UTF-8 stdout so non-ASCII output can't crash on a legacy console codepage.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -186,7 +160,7 @@ def main() -> None:
 
     model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
     system = PLAN_SYSTEM if args.plan else SYSTEM
-    context_files = args.context or []  # normalize None -> []
+    context_files = args.context or []
 
     code = implement(
         spec,

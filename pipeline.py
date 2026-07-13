@@ -1,34 +1,11 @@
 #!/usr/bin/env python3
-"""
-pipeline.py - one entry point for the DeepSeek implementation pipeline.
-
-The flow, end to end:
+"""One entry point for the DeepSeek pipeline: intent -> plan -> agent, staged.
 
     intent --> DeepSeek plan --> [Opus judges plan] --> DeepSeek agent --> [Opus judges diff]
-    (you)       (Pro --plan)      (you, Claude Code)      (deepseek_agent)    (you)
 
-The two judge gates belong to Opus and live in Claude Code, not in this script. So the
-pipeline is staged: each DeepSeek step emits an artifact you review before continuing.
-That is deliberate - a fully automated run would delete the independent review the whole
-pipeline exists to keep.
-
-Subcommands
------------
-  plan   Expand a short intent into a plan (DeepSeek Pro). The intent is a workable goal
-         in a few sentences, NOT a spec - Pro writes the spec-level plan; you judge it.
-         (Short, one-shottable tasks skip this entirely - just do them on the current model.)
-             python pipeline.py plan "INTENT or intent.md" [-o plan.md] [--flash]
-
-  run    Run the agentic loop against an APPROVED plan file. Everything after the plan
-         path is forwarded verbatim to deepseek_agent.py (--verify, --repo, --flash,
-         --escalate, --allow-dirty, --max-steps, --max-output).
-             python pipeline.py run plan.md --verify "pytest -q" --repo .
-
-  auto   intent --> plan --> agent in one shot, SKIPPING the plan-review gate. Prints the
-         plan it used (to stderr) so the diff stays clean on stdout. The plan is always
-         drafted on Pro; args after the intent are forwarded to the agent. Use for small
-         or trusted tasks - you still review the final diff.
-             python pipeline.py auto "INTENT" --verify "pytest -q" --repo . --flash
+The judge gates belong to Opus in Claude Code, not this script; the staging exists so each
+DeepSeek step emits an artifact you review before continuing. Subcommands: plan, run, auto
+(auto skips the plan-review gate). See CLAUDE.md for the full workflow.
 """
 
 import argparse
@@ -114,8 +91,7 @@ def cmd_auto(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    # Plan text / agent output is UTF-8; force stdout so non-ASCII can't crash printing
-    # on a legacy Windows console codepage.
+    # Force UTF-8 stdout so non-ASCII output can't crash on a legacy console codepage.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
