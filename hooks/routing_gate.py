@@ -18,7 +18,7 @@ Contract (Claude Code hooks):
 
 To record a decision, write the chosen route to `.claude/routing-ack` (edits under
 `.claude/` are always allowed, so this never deadlocks):
-    echo "Routing: deepseek-agent - multi-file, testable" > .claude/routing-ack
+    echo "Routing: pipeline - multi-file, testable" > .claude/routing-ack
 """
 
 import json
@@ -70,10 +70,10 @@ def main() -> int:
     sys.stderr.write(
         "Routing gate: no fresh routing decision on record before editing code.\n"
         f"Editing: {rel}\n"
-        "State a `Routing:` line (direct | deepseek-oneshot | deepseek-agent | pipeline) per "
-        "CLAUDE.md, then record it:\n"
+        "State a `Routing:` line (inline | deepseek-oneshot | pipeline) per CLAUDE.md, then "
+        "record it:\n"
         '    echo "Routing: <route> - <reason>" > .claude/routing-ack\n'
-        "Then retry the edit. If the honest route is `direct`, record that too - the gate only "
+        "Then retry the edit. If the honest route is `inline`, record that too - the gate only "
         "checks that a decision was made, not which one.\n"
     )
     return 2
