@@ -29,24 +29,26 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 Every coding task opens with one line before any code:
 
 ```
-Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+Routing: <inline | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-**Two-tier tripwire (hard)** — forbids the light routes so Claude can't quietly under-scope.
-"Files" = files **edited**; reference reads (e.g. oneshot's `-c`) never count.
-- Forbids `direct`: ≥2 files edited OR ≥2 languages OR >40 net-new logic lines OR needs a test loop.
-- Forbids `oneshot` too (wider): ≥3 files edited OR ≥2 languages OR >~120 net-new logic lines OR
+**`deepseek-oneshot` is the floor** for spec-able generation — Claude does not write code by size.
+`inline` is not a size route; it's allowed only in two context-triggered cases, so there's no
+"small enough to just write it" judgment.
+
+**Tripwire (hard)** — forbids `oneshot` so it can't absorb agent-scale work. "Files" = files
+**edited**; reference reads (oneshot's `-c`) never count.
+- Forbids `oneshot`: ≥3 files edited OR ≥2 languages OR >~120 net-new logic lines OR
   testable/needs a verify loop → must be `agent`/`pipeline`. (Oneshot may read unlimited context,
   edit one or two files.)
 
-**Testability is the hard discriminator** — has/needs tests → `agent`/`pipeline`, never
-`direct`/`oneshot`. **Default upward on ambiguity** — unsure between two routes, take the one
-further from `direct`.
+**Testability is the hard discriminator** — has/needs tests → `agent`/`pipeline`, never `oneshot`.
+**Default upward on ambiguity** — unsure, take the one further from `inline`.
 
 | Route | When | Tool |
 | --- | --- | --- |
-| **direct** | one file, <~20 new lines, or "you write it" | Sonnet writes it |
-| **deepseek-oneshot** | one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
+| **inline** | ONLY "you write it" OR a trivial edit coupled to a live diagnosis | Sonnet writes it |
+| **deepseek-oneshot** | floor: one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
 | **deepseek-agent** | multi-file OR testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
 | **pipeline** | non-trivial, needs a plan drafted | `pipeline.py` (the default agent-scale entry) |
 
@@ -58,7 +60,7 @@ decision is recorded in `.claude/routing-ack`.
 Turn the request into a short workable goal **plus a 2–4 bullet definition of done** — observable,
 falsifiable outcomes (e.g. `retries on 429/timeout`, `caps at N`, `existing calls unchanged`). Not a
 spec; it's the concrete target every downstream gate checks against. **If you can't write the
-done-list, the intent isn't ready — tighten it first.** For `direct`/`oneshot`, the done-list *is*
+done-list, the intent isn't ready — tighten it first.** For `inline`/`oneshot`, the done-list *is*
 the mini-spec and steps 3–4 are skipped.
 
 ## [3] Plan — DeepSeek Pro

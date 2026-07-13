@@ -51,35 +51,36 @@ resolving at DeepSeek and avoiding the Opus stage.
 Before writing **any** implementation code, emit one line at the top of your response:
 
 ```
-Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+Routing: <inline | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-No Routing line before code is a process error. Pick the route.
+No Routing line before code is a process error. **`deepseek-oneshot` is the floor for all spec-able
+generation** — Claude does not write implementation code by size. `inline` is not a size route; it
+is allowed ONLY in two context-triggered cases (below), so there is no "is this small enough for me
+to just write it" judgment to make.
 
-**Two-tier tripwire (hard).** These forbid the *light* routes so Claude can't quietly under-scope
-— they are forcing functions, not a classifier. **"Files" means files EDITED/written; files read
-for reference (e.g. passed to oneshot via `-c`) never count** toward a tripwire.
-- **Forbids `direct`:** ≥2 files edited OR ≥2 languages OR >40 net-new logic lines OR the task
-  needs a test loop. Past this, `direct` requires naming the exception on the same line (e.g.
-  `direct — 3 files but all one-line config`).
-- **Forbids `oneshot` too (wider ceiling):** **≥3 files edited** OR ≥2 languages OR **>~120
-  net-new logic lines** OR the task is testable / needs a verify loop → must be `agent`/`pipeline`.
-  Oneshot may read as many context files as it needs and edit one or two; it gets more line
-  headroom than direct. But the moment it needs a third edited file **or** wants tests, it's off
-  the table — those are exactly the gates oneshot skips.
+**Tripwire (hard).** Forbids the *light* route so oneshot can't quietly absorb agent-scale work —
+a forcing function, not a classifier. **"Files" means files EDITED/written; files read for reference
+(e.g. passed to oneshot via `-c`) never count.**
+- **Forbids `oneshot`:** **≥3 files edited** OR ≥2 languages OR **>~120 net-new logic lines** OR the
+  task is testable / needs a verify loop → must be `agent`/`pipeline`. Oneshot may read as many
+  context files as it needs and edit one or two. But the moment it needs a third edited file **or**
+  wants tests, it's off the table — those are exactly the gates oneshot skips.
 
 The routes:
-- **direct** — one file, <~20 net-new lines, OR I told you "write it yourself." You write it inline.
-- **deepseek-oneshot** — one or two self-contained files/functions, no test loop, up to ~120
-  net-new lines; reads any needed context via `-c` → `implement_with_deepseek.py`.
+- **inline (Claude writes it)** — ONLY when (a) I told you "write it yourself," or (b) it's a trivial
+  edit tightly coupled to a live diagnosis (the debugging carve-out). Both are context-triggered, not
+  size-judged — never pick `inline` just because the change looks small.
+- **deepseek-oneshot** — the floor for spec-able work: one or two self-contained files/functions, no
+  test loop, up to ~120 net-new lines; reads any needed context via `-c` → `implement_with_deepseek.py`.
 - **deepseek-agent** — multi-file OR testable (has/needs a verify command) → `deepseek_agent.py --verify`.
 - **pipeline** — non-trivial / needs a plan → `pipeline.py` (intent → Pro plan → judge → agent → judge).
 
 **Testability is the hard discriminator:** if the task has or needs tests, it is `agent`/`pipeline`,
-never `direct`/`oneshot` — the verify loop is the point. **Default upward on ambiguity:** unsure
-between two routes, take the one **further from `direct`** (more machinery, more gates). The
-gates below are the rationale; this line is what you execute. (A repo hook may enforce that the
-Routing decision was recorded before a code Write/Edit — see `docs/deepseek-pipeline.md`.)
+never `oneshot` — the verify loop is the point. **Default upward on ambiguity:** unsure between two
+routes, take the one **further from `inline`** (more machinery, more gates). The gates below are the
+rationale; this line is what you execute. (A repo hook may enforce that the Routing decision was
+recorded before a code Write/Edit — see `docs/deepseek-pipeline.md`.)
 
 ## Session model: Sonnet for the session, Opus for judging and authorship
 Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
