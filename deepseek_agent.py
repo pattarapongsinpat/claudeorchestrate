@@ -18,13 +18,9 @@ from typing import Any, List, Tuple
 from openai import OpenAI
 from openai.types.shared_params import FunctionDefinition
 
-# Import constants and helper from the existing module.
 from implement_with_deepseek import _resolve_api_key, DEEPSEEK_MODEL, DEEPSEEK_FLASH, DEEPSEEK_BASE_URL
 
-# --------------------------------------------------------------------------- #
 # Tool definitions (OpenAI function calling format)
-# --------------------------------------------------------------------------- #
-
 TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -168,11 +164,9 @@ def _resolve_repo_path(repo_dir: str, allow_dirty: bool) -> Tuple[Path, bool]:
     """Return resolved absolute repo path and a dirty flag.
     Exit if not a git repo or git status fails. On dirty without allow_dirty, exit."""
     repo = Path(repo_dir).resolve()
-    # Check is a git repo
     git_dir = repo / ".git"
     if not git_dir.is_dir():
         sys.exit(f"Error: {repo} is not a git repository (no .git directory).")
-    # Check working tree is clean
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -239,7 +233,6 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     """Search recursively under user_path for pattern. user_path can be file or dir.
     Return lines as 'relative/path:lineno: line', up to 100 matches, truncated if more.
     Silently skip binary/unreadable files. Fallback from regex to plain substring."""
-    # Determine root path for search
     if user_path == "" or user_path == ".":
         abs_root = str(repo_root)
     else:
@@ -249,7 +242,7 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     if not os.path.exists(abs_root):
         return f"Error: path '{user_path}' does not exist."
 
-    # Compile regex; fallback to plain substring
+    # Compile regex; fall back to plain substring on invalid pattern.
     try:
         regex = re.compile(pattern)
         use_regex = True
@@ -262,7 +255,6 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     skipped_binary = 0
     skipped_decode = 0
 
-    # Collect file paths
     if os.path.isfile(abs_root):
         files = [abs_root]
     else:
@@ -273,19 +265,15 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
                 files.append(os.path.join(dirpath, fn))
 
     for fpath in files:
-        # Check containment (should be inside repo)
         if _safe_path(repo_root, os.path.relpath(fpath, repo_root)) is None:
             continue
         relative = os.path.relpath(fpath, repo_root)
-        # Try to read text
         try:
             with open(fpath, "r", encoding="utf-8", errors="strict") as f:
                 lines = f.readlines()
         except (UnicodeDecodeError, PermissionError, OSError):
             skipped_binary += 1
             continue
-        # Actually read lines for safety: open again? We already read lines.
-        # But we already read them, so fine.
         for lineno, line in enumerate(lines, 1):
             if use_regex:
                 if regex.search(line):
@@ -301,7 +289,6 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     output = "\n".join(results)
     if len(results) >= max_results:
         output += f"\n... (truncated, showing first {max_results} matches)"
-    # Append skipped info if any
     if skipped_binary > 0:
         output += f"\n(skipped {skipped_binary} binary/unreadable files)"
     return output
@@ -315,7 +302,7 @@ def run_agent_loop(
     repo: Path,
 ) -> Tuple[bool, str | None, int, List[dict[str, Any]]]:
     """Run the agent loop from scratch. Returns (finished, done_summary, step_count, full_messages)."""
-    messages = [m.copy() for m in base_messages]  # fresh copy each call
+    messages = [m.copy() for m in base_messages]
     step_count = 0
     finished = False
     done_summary: str | None = None
@@ -334,15 +321,13 @@ def run_agent_loop(
 
         assistant_msg = response.choices[0].message
 
-        # If assistant message has no tool calls, we're done (plain text)
+        # No tool calls means a plain-text reply: the agent is done.
         if not assistant_msg.tool_calls:
             messages.append({"role": "assistant", "content": assistant_msg.content or ""})
             finished = True
             break
 
-        # Append the assistant message with tool calls to history
         assistant_dict: dict[str, Any] = {"role": "assistant", "content": assistant_msg.content or ""}
-        # OpenAI expects tool_calls as list of dicts
         assistant_dict["tool_calls"] = [
             {
                 "id": tc.id,
@@ -353,7 +338,6 @@ def run_agent_loop(
         ]
         messages.append(assistant_dict)
 
-        # Execute each tool call
         for tc in assistant_msg.tool_calls:
             func_name = tc.function.name
             func_args_str = tc.function.arguments
@@ -498,7 +482,6 @@ def run_agent_loop(
                     }
                 )
 
-        # If done was called, break the outer loop
         if finished:
             break
 
@@ -529,9 +512,7 @@ def _run_verify(verify: str | None, repo: Path, max_output: int) -> Tuple[bool |
 
 
 def main() -> None:
-    # Model output (summaries, diffs, failed-leg reports) is UTF-8; force stdout so
-    # non-ASCII (em dashes, arrows, box chars) can't crash printing on a legacy
-    # Windows console codepage.
+    # Force UTF-8 stdout so non-ASCII output can't crash on a legacy console codepage.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -548,9 +529,6 @@ def main() -> None:
     parser.add_argument("--escalate", action="store_true", help="If flash attempt fails (UNFINISHED), reset repo and retry with Pro model")
     args = parser.parse_args()
 
-    # ---------------------------------------------------------------
-    # Validate TASK
-    # ---------------------------------------------------------------
     task_text: str
     task_path = Path(args.task)
     if task_path.is_file():
@@ -560,14 +538,8 @@ def main() -> None:
     if not task_text:
         sys.exit("Error: TASK is empty.")
 
-    # ---------------------------------------------------------------
-    # Validate repo (with dirty handling)
-    # ---------------------------------------------------------------
     repo, is_dirty = _resolve_repo_path(args.repo, args.allow_dirty)
 
-    # ---------------------------------------------------------------
-    # Auto-stash if dirty and allowed
-    # ---------------------------------------------------------------
     stash_created = False
     if is_dirty and args.allow_dirty:
         try:
@@ -587,16 +559,10 @@ def main() -> None:
         except Exception as e:
             sys.exit(f"Error stashing: {e}")
 
-    # ---------------------------------------------------------------
-    # Setup OpenAI client with DeepSeek
-    # ---------------------------------------------------------------
     api_key = _resolve_api_key()
     model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
     client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
 
-    # ---------------------------------------------------------------
-    # Build base messages (system + user)
-    # ---------------------------------------------------------------
     if args.verify:
         verify_msg = f"Verification command: {args.verify}"
     else:
@@ -607,25 +573,20 @@ def main() -> None:
         {"role": "user", "content": f"Task: {task_text}\n\n{verify_msg}"},
     ]
 
-    # ---------------------------------------------------------------
-    # First attempt (Flash if args.flash, else Pro)
-    # ---------------------------------------------------------------
     finished, done_summary, step_count, messages = run_agent_loop(
         client, model, base_messages, args, repo
     )
     verify_passed, verify_report = _run_verify(args.verify, repo, args.max_output)
-    # Success means the tests actually pass. Only when no verify command is configured
-    # do we fall back to "the agent stopped on its own" as the success signal.
+    # Success means the tests actually pass; only without a verify command do we fall
+    # back to "the agent stopped on its own" as the success signal.
     success = verify_passed if verify_passed is not None else finished
 
-    # ---------------------------------------------------------------
-    # Escalation: --escalate, started on Flash, and the attempt did NOT succeed
-    # (verify still failing, or step cap hit) — not merely "did the loop stop".
-    # ---------------------------------------------------------------
+    # Escalate only when --escalate, started on Flash, and the attempt did NOT succeed
+    # (verify still failing or step cap hit) — not merely because the loop stopped.
     if args.escalate and args.flash and not success:
         reason = "UNFINISHED (hit step cap)" if not finished else "verify FAILING"
         print(f"Flash attempt: {reason} - escalating to Pro")
-        # Reset repo to pristine pre-run state
+        # Reset repo to its pristine pre-run state before the Pro retry.
         try:
             subprocess.run(
                 ["git", "reset", "--hard", "HEAD"],
@@ -650,7 +611,6 @@ def main() -> None:
         except Exception as e:
             sys.exit(f"Error resetting repo: {e}")
 
-        # Re-run on Pro
         model = DEEPSEEK_MODEL
         finished, done_summary, step_count, messages = run_agent_loop(
             client, model, base_messages, args, repo
@@ -658,10 +618,8 @@ def main() -> None:
         verify_passed, verify_report = _run_verify(args.verify, repo, args.max_output)
         success = verify_passed if verify_passed is not None else finished
 
-    # ---------------------------------------------------------------
-    # Determine final status — keyed off the real verify result when there is
-    # one, so "the agent stopped" cannot masquerade as success.
-    # ---------------------------------------------------------------
+    # Final status keyed off the real verify result when there is one, so "the agent
+    # stopped" cannot masquerade as success.
     if args.verify:
         if verify_passed:
             status = f"SUCCESS - verify PASSING after {step_count} step(s)."
@@ -676,21 +634,14 @@ def main() -> None:
         else:
             status = f"UNFINISHED (hit step cap of {args.max_steps}) after {step_count} step(s)."
 
-    # ---------------------------------------------------------------
-    # Final output
-    # ---------------------------------------------------------------
     print(status)
     if done_summary:
         print(f"Agent summary: {done_summary}")
     if verify_report:
         print(verify_report)
 
-    # ---------------------------------------------------------------
-    # Failed-leg report — whenever the run did not truly succeed (verify still
-    # failing, or step cap hit), not merely when the loop hit the cap.
-    # ---------------------------------------------------------------
+    # Failed-leg report whenever the run did not truly succeed — the handoff to Opus.
     if not success:
-        # Make one additional model call asking for a failure report
         try:
             fail_messages = messages.copy()
             fail_messages.append({
@@ -712,7 +663,6 @@ def main() -> None:
         except Exception as e:
             print(f"\n--- Failed-leg report (could not generate: {e}) ---")
 
-    # Git diff of tracked changes
     try:
         diff_result = subprocess.run(
             ["git", "diff"],
@@ -730,7 +680,6 @@ def main() -> None:
     except Exception as e:
         print(f"Error getting git diff: {e}")
 
-    # List untracked new files
     try:
         untracked_result = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard"],
@@ -749,9 +698,7 @@ def main() -> None:
     except Exception as e:
         print(f"Error listing untracked files: {e}")
 
-    # ---------------------------------------------------------------
-    # Pop stash if one was created (after all outputs)
-    # ---------------------------------------------------------------
+    # Restore the auto-stashed changes, after all other output.
     if stash_created:
         try:
             pop_result = subprocess.run(
