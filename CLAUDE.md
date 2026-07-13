@@ -103,8 +103,8 @@ no subagents needed.
   it yourself," skip the pipeline and just write the code.
 - Use it for open-ended, spec-able implementation work — especially bulk or
   parallelizable chunks — where DeepSeek is likely to succeed.
-- When in doubt on hard/novel work, ask whether to delegate. Work that will likely
-  escalate to Opus anyway is often cheaper (in Claude usage) done directly.
+- When in doubt, let it ride — default to delegating, don't stop to ask. The gates
+  (plan judge, verify, diff judge) catch misses; a wrong route just escalates.
 
 ## Pre-flight — two leak checks before dispatching
 The spec + review + integration overhead only pays off when DeepSeek's generation is

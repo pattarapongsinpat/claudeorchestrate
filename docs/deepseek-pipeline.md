@@ -49,8 +49,9 @@ two `inline` (Claude-writes-it) cases are context-triggered, never size-judged:
 - **Everything else spec-able floors at a DeepSeek one-shot** and climbs from there (agent /
   pipeline) by testability and file count — even small changes go to DeepSeek, eating a round-trip
   on trivia rather than spending Claude output.
-- **When in doubt on hard/novel work, ask** whether I want it delegated or done inline. Hard work
-  that will likely escalate to Opus anyway is often cheaper (in Claude usage) done inline.
+- **When in doubt, let it ride — default to delegating, don't stop to ask.** The plan gate, the
+  verify command, and the diff gate catch misses; a wrong route just escalates. Minimize
+  interruptions.
 
 ## Pre-flight — two leak checks before you dispatch
 
