@@ -16,9 +16,10 @@ Contract (Claude Code hooks):
 - exit 0  -> allow the tool call.
 - exit 2  -> block it; stderr is fed back to the model as the reason.
 
-To record a decision, write the chosen route to `.claude/routing-ack` (edits under
-`.claude/` are always allowed, so this never deadlocks):
-    echo "Routing: pipeline - multi-file, testable" > .claude/routing-ack
+This hook only ever fires on Claude's OWN Write/Edit, which is the `inline` case (DeepSeek's
+writes go through Bash, invisible here). So the marker records that Claude consciously chose to
+write this code inline. To record it (edits under `.claude/` are always allowed, so no deadlock):
+    echo "Routing: inline - instructed" > .claude/routing-ack
 """
 
 import json
@@ -68,13 +69,13 @@ def main() -> int:
         return 0
 
     sys.stderr.write(
-        "Routing gate: no fresh routing decision on record before editing code.\n"
+        "Routing gate: you are about to write code directly. That is only allowed as `inline` —\n"
+        "either I told you to write it, or it's a trivial edit tightly coupled to a live diagnosis.\n"
         f"Editing: {rel}\n"
-        "State a `Routing:` line (inline | deepseek-oneshot | pipeline) per CLAUDE.md, then "
-        "record it:\n"
-        '    echo "Routing: <route> - <reason>" > .claude/routing-ack\n'
-        "Then retry the edit. If the honest route is `inline`, record that too - the gate only "
-        "checks that a decision was made, not which one.\n"
+        "- Legit inline? Record it and retry:\n"
+        '    echo "Routing: inline - <instructed|diagnosis>" > .claude/routing-ack\n'
+        "- NOT inline? Do NOT write it yourself. Delegate instead — deepseek-oneshot (with `-o` so\n"
+        "  the tool writes the file) or pipeline — so DeepSeek writes the code, not you.\n"
     )
     return 2
 
