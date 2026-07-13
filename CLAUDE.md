@@ -54,20 +54,28 @@ Before writing **any** implementation code, emit one line at the top of your res
 Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-No Routing line before code is a process error. Pick the route:
+No Routing line before code is a process error. Pick the route.
 
-- **Tripwire (hard).** If the task touches **≥2 files** OR **≥2 languages** OR **>40 lines of
-  net-new logic**, Routing MUST NOT be `direct`. Choosing `direct` past a tripwire requires
-  naming the exception on the same line (e.g. `direct — 3 files but all one-line config`). The
-  numbers are a forcing function, not a verdict: they exist to deny you a *silent* inline exit,
-  not to classify the work for you.
+**Two-tier tripwire (hard).** These forbid the *light* routes so Claude can't quietly under-scope
+— they are forcing functions, not a classifier:
+- **Forbids `direct`:** ≥2 files OR ≥2 languages OR >40 net-new logic lines OR the task needs a
+  test loop. Past this, `direct` requires naming the exception on the same line (e.g.
+  `direct — 3 files but all one-line config`).
+- **Forbids `oneshot` too (wider ceiling):** ≥2 files OR ≥2 languages OR **>~120 net-new logic
+  lines** OR the task is testable / needs a verify loop → must be `agent`/`pipeline`. Oneshot gets
+  more line headroom than direct, but the moment work is multi-file **or** wants tests, it's off
+  the table — those are exactly the gates oneshot skips.
+
+The routes:
 - **direct** — one file, <~20 net-new lines, OR I told you "write it yourself." You write it inline.
-- **deepseek-oneshot** — one self-contained file/function, no test loop needed →
-  `implement_with_deepseek.py`.
-- **deepseek-agent** — multi-file, testable, has a verify command → `deepseek_agent.py --verify`.
+- **deepseek-oneshot** — ONE self-contained file/function, no test loop, up to ~120 net-new lines
+  → `implement_with_deepseek.py`.
+- **deepseek-agent** — multi-file OR testable (has/needs a verify command) → `deepseek_agent.py --verify`.
 - **pipeline** — non-trivial / needs a plan → `pipeline.py` (intent → Pro plan → judge → agent → judge).
 
-The bias is delegation: when two routes both fit, take the one **further from `direct`**. The
+**Testability is the hard discriminator:** if the task has or needs tests, it is `agent`/`pipeline`,
+never `direct`/`oneshot` — the verify loop is the point. **Default upward on ambiguity:** unsure
+between two routes, take the one **further from `direct`** (more machinery, more gates). The
 gates below are the rationale; this line is what you execute. (A repo hook may enforce that the
 Routing decision was recorded before a code Write/Edit — see `docs/deepseek-pipeline.md`.)
 

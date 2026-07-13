@@ -32,14 +32,20 @@ Every coding task opens with one line before any code:
 Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-**Tripwire (hard):** ≥2 files OR ≥2 languages OR >40 net-new logic lines → NOT `direct` unless you
-name the exception on the same line. Bias: when two routes fit, take the one further from `direct`.
+**Two-tier tripwire (hard)** — forbids the light routes so Claude can't quietly under-scope:
+- Forbids `direct`: ≥2 files OR ≥2 languages OR >40 net-new logic lines OR needs a test loop.
+- Forbids `oneshot` too (wider): ≥2 files OR ≥2 languages OR >~120 net-new logic lines OR
+  testable/needs a verify loop → must be `agent`/`pipeline`.
+
+**Testability is the hard discriminator** — has/needs tests → `agent`/`pipeline`, never
+`direct`/`oneshot`. **Default upward on ambiguity** — unsure between two routes, take the one
+further from `direct`.
 
 | Route | When | Tool |
 | --- | --- | --- |
 | **direct** | one file, <~20 new lines, or "you write it" | Sonnet writes it |
-| **deepseek-oneshot** | one self-contained file/function, no test loop | `implement_with_deepseek.py` |
-| **deepseek-agent** | multi-file/testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
+| **deepseek-oneshot** | ONE file/function, no test loop, up to ~120 new lines | `implement_with_deepseek.py` |
+| **deepseek-agent** | multi-file OR testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
 | **pipeline** | non-trivial, needs a plan drafted | `pipeline.py` (the default agent-scale entry) |
 
 Enforcement: a PreToolUse hook (`hooks/routing_gate.py`) blocks a code Write/Edit until a routing
