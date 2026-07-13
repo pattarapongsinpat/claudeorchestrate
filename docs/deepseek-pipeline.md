@@ -73,15 +73,15 @@ the bulk of the work. Two task shapes lose that bet — catch them before dispat
      it's near-transcription, the spec already cost the code's worth of output; dispatch
      + judge + integrate is pure loss on top. Delegate only chunks with real freedom.
 
-## Intent and planning: Opus writes a short intent, Pro writes the plan
+## Intent and planning: the current model writes a short intent, Pro writes the plan
 
 The single most Claude-token-expensive thing you do is *output*, and an elaborate spec is the
-worst of it. So Opus's front-end authoring is only a short **intent** — a workable goal, not a
-spec — and the plan itself is DeepSeek Pro's job for anything non-trivial:
+worst of it. So the current model's front-end authoring is only a short **intent** — a workable
+goal, not a spec — and the plan itself is DeepSeek Pro's job for anything non-trivial:
 
 - **Intent → current model, kept short.** Turn my ask into a clear, workable goal in a few
   sentences. No acceptance criteria, no design write-up at this stage — the plan carries that.
-  This short intent is the only up-front authoring Opus does.
+  This short intent is the only up-front authoring the current model does.
 - **Then the split is one question: is the task short and one-shottable?**
   - **Yes → a single `implement_with_deepseek.py` one-shot** (the floor for spec-able work). No
     separate plan step, no plan-judge; below this bar the draft-then-judge round-trip costs more

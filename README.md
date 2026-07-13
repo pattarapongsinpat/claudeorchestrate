@@ -11,14 +11,15 @@ diagnosis.
 ## How it works
 
 ```
-you ─▶ intent+done-list ─▶ Pro plan ─▶ Opus judges plan ─▶ one-shot / agent ─▶ verify ─▶ Opus judges diff
-       (Claude)            (DeepSeek)   (Claude)            (DeepSeek)          (tests)   (Claude)
+you ─▶ intent+done-list ─▶ Pro plan ─▶ Opus judges plan ─▶ one-shot / pipeline ─▶ verify ─▶ Opus judges diff
+       (Claude)            (DeepSeek)   (Claude)            (DeepSeek)             (tests)   (Claude)
                                                                  │
                                         escalation ladder if it misses:
                               Flash ─▶ Pro (rewrite 1) ─▶ Pro (rewrite 2) ─▶ Opus author
 ```
 
-Each coding task opens with a `Routing:` line (inline / one-shot / agent / pipeline). Claude turns
+Each coding task opens with a `Routing:` line — `deepseek-oneshot` or `pipeline` (with `inline` the
+narrow exception when Claude writes it, and the agent being pipeline's back half, not a start route). Claude turns
 your ask into a short intent plus a 2–4 bullet **definition of done**; for non-trivial work DeepSeek
 Pro drafts the plan and an independent **Opus judge** checks it against that done-list before any
 code. Implementation runs as a one-shot or a self-correcting agent gated by a **verify command**;
@@ -36,7 +37,9 @@ Full flow: [`docs/workflow.md`](docs/workflow.md).
 | `pipeline.py` | Staged entry point: `plan` / `run` / `auto` — intent to plan to agent, with Opus judge gates between stages. |
 | `implement_with_deepseek.py` | The dispatcher: sends a spec to DeepSeek, returns code. |
 | `deepseek_agent.py` | Agentic coding loop: DeepSeek reads/writes files and runs a verify command, iterating until it passes. |
+| `hooks/routing_gate.py` | PreToolUse hook: blocks a code Write/Edit until a routing decision is recorded. |
 | `agents/deepseek-implementer.md` | Subagent def for fanning out parallel chunks. |
+| `agents/judge.md`, `agents/author.md` | Subagent defs for the Opus judge gates and terminal authorship. |
 | `sample_spec.md` | Example of the spec format. |
 
 ## Setup

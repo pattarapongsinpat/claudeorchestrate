@@ -5,17 +5,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository orientation
 
 This repo **is** the DeepSeek orchestration tooling itself — not a product that uses it. It
-ships one dispatcher script plus the prose rules (this file, `docs/`, `agents/`) that tell a
+ships a few small Python tools plus the prose rules (this file, `docs/`, `agents/`) that tell a
 Claude Code session how to drive the pipeline. Editing here means editing the pipeline's own
-tool and its operating rules.
+tools and its operating rules.
 
-- **`implement_with_deepseek.py`** — the only code. A thin, dependency-light dispatcher: reads
+- **`implement_with_deepseek.py`** — the dispatcher. A thin, dependency-light one-shot: reads
   a spec (file path, inline string, or stdin), sends it to DeepSeek via the OpenAI-compatible
   client, prints the result. It holds **no escalation logic** — the ladder, review, and judging
   are the Claude session's job, described in the rules below. Two system prompts: implementation
   (default) and planning (`--plan`). Model is Pro by default, Flash via `--flash`.
-- **`docs/deepseek-pipeline.md`** — full rationale; this file is the condensed version of it.
-- **`agents/deepseek-implementer.md`** — subagent definition for parallel fan-out.
+- **`deepseek_agent.py`** — the agentic loop: DeepSeek reads/writes files, greps, and runs a
+  verify command, iterating until it passes or a step cap hits (`--allow-dirty`, `--escalate`).
+- **`pipeline.py`** — staged front door (`plan` / `run` / `auto`) over the two tools above.
+- **`hooks/routing_gate.py`** — PreToolUse hook that blocks a code Write/Edit until a routing
+  decision is recorded in `.claude/routing-ack`.
+- **`docs/deepseek-pipeline.md`** / **`docs/workflow.md`** — full rationale and the end-to-end
+  flow; this file is the condensed version.
+- **`agents/deepseek-implementer.md`**, **`agents/judge.md`**, **`agents/author.md`** — subagent
+  definitions for parallel fan-out, the judge gates, and terminal authorship.
 - **`sample_spec.md`** — the spec format to imitate when authoring specs.
 
 ### Running it
@@ -34,8 +41,9 @@ python implement_with_deepseek.py spec.md -o out.py  # write result to a file
 `.env.example` to `.env` to set it locally (`.env` is gitignored).
 
 There is **no test suite, build step, or linter** — don't look for one. Verify a change to the
-dispatcher by running it against `sample_spec.md` (or `--plan`) and checking the output; a
-missing key exits with a clean message rather than a traceback.
+dispatcher by running it against `sample_spec.md` (or `--plan`) and checking the output; verify
+`deepseek_agent.py` / `pipeline.py` against a throwaway git repo with a real `--verify` command;
+a missing key exits with a clean message rather than a traceback.
 
 ---
 
