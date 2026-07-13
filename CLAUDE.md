@@ -113,16 +113,28 @@ the bulk of the work. Two shapes lose that bet:
 one that does every non-generation step). Its *output* is the expensive part, so keep its
 front-end authoring to a short **intent** and push the plan itself onto DeepSeek Pro.
 - **Intent → current model, kept short.** Turn what I want into a clear, workable goal — a few
-  sentences. Do NOT write a spec or acceptance criteria at this stage; that's the plan's job.
-  This short intent is the only up-front authoring the current model does.
+  sentences — **plus a 2–4 bullet definition of done**: observable, falsifiable outcomes (e.g.
+  `retries on 429/timeout`, `existing calls unchanged`). This is NOT a spec and NOT the detailed
+  acceptance criteria (that's the plan's job) — it's the concrete target the plan gate checks
+  against, so the judge grades coverage instead of a vibe. If the intent is too vague to write a
+  done-list, it isn't ready — tighten it before spending a plan on it. This is the only up-front
+  authoring the current model does.
 - **Planning splits on one question — is the task short and one-shottable?**
   - **Yes → current model handles it.** Small enough to do in a single shot: the current model
     just does it (write it directly, or one DeepSeek one-shot). No separate plan step.
   - **No → ALL planning goes to DeepSeek Pro** (`--plan`). Pro expands the short intent into the
-    actual plan (the spec-equivalent). The current model does NOT author this plan.
-- **Then the current model judges.** It judges Pro's plan against the intent before implementing,
-  and judges the diff against the plan after. Every step except generation (intent, both
-  judgments, the escalation decision) runs on the current model.
+    actual plan (the spec-equivalent), which MUST state its own acceptance criteria (interface,
+    behavior, edge cases) and name a runnable verify command. The current model does NOT author
+    this plan.
+- **The Opus `judge` subagent judges every Pro plan — always, never DeepSeek.** DeepSeek grading
+  its own plan is self-review; the plan gate is the one independent check that catches "Pro
+  misread the intent" before any code is generated, and it's the cheapest Opus touch (short plan
+  vs short intent). The judge grades the plan's **acceptance criteria** against the intent's
+  done-list on three concrete questions: **coverage** (every done-bullet covered?), **soundness**
+  (edge cases and error handling present and correct?), **testability** (does it name a verify
+  command that actually checks them?). Any miss → FAIL back to Pro. Then Opus judges the diff
+  against the plan after. Every step except generation (intent, both judgments, the escalation
+  decision) runs on Opus.
 
 ## Opus handles these directly — never DeepSeek
 - **All non-coding tasks use the current main model** — GitHub Actions, deployment,
