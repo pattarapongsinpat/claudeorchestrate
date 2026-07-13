@@ -131,8 +131,9 @@ front-end authoring to a short **intent** and push the plan itself onto DeepSeek
   done-list, it isn't ready — tighten it before spending a plan on it. This is the only up-front
   authoring the current model does.
 - **Planning splits on one question — is the task short and one-shottable?**
-  - **Yes → current model handles it.** Small enough to do in a single shot: the current model
-    just does it (write it directly, or one DeepSeek one-shot). No separate plan step.
+  - **Yes → no separate plan step.** Small enough to do in a single shot: dispatch it as a
+    **DeepSeek one-shot** (the floor). Claude only writes it itself in the two `inline` cases
+    (instructed, or diagnosis-coupled) — not because it's short.
   - **No → ALL planning goes to DeepSeek Pro** (`--plan`). Pro expands the short intent into the
     actual plan (the spec-equivalent), which MUST state its own acceptance criteria (interface,
     behavior, edge cases) and name a runnable verify command. The current model does NOT author

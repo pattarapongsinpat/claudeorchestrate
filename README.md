@@ -1,27 +1,31 @@
 # claudeochestrate
 
 A small orchestration pipeline for [Claude Code](https://claude.com/claude-code) that
-delegates spec-able **implementation** work to [DeepSeek](https://deepseek.com) while
-keeping **design, spec-writing, and review** with Claude. The goal is to conserve Claude
-Pro-plan subscription usage: DeepSeek does the heavy code generation you'd otherwise spend
-Claude quota on, and Claude only writes code directly as the final fallback.
+delegates spec-able **implementation** and **plan-drafting** to [DeepSeek](https://deepseek.com)
+while keeping **design, a short intent, and review** with Claude. The goal is to conserve Claude
+Pro-plan subscription usage: DeepSeek does the heavy code generation (and the long plans) you'd
+otherwise spend Claude quota on. **DeepSeek is the floor — Claude does not write implementation
+code by size**; it writes code inline only when you say so or for a trivial edit tied to a live
+diagnosis.
 
 ## How it works
 
 ```
-guidelines ──▶ Claude writes a spec ──▶ DeepSeek implements ──▶ Claude reviews vs. spec
-   (you)          (flat-rate)              (metered)               (flat-rate)
-                                               │
-                                    escalation ladder if it misses:
-                        Flash ──▶ Pro (rewrite 1) ──▶ Pro (rewrite 2) ──▶ Opus writes it
+you ─▶ intent+done-list ─▶ Pro plan ─▶ Opus judges plan ─▶ one-shot / agent ─▶ verify ─▶ Opus judges diff
+       (Claude)            (DeepSeek)   (Claude)            (DeepSeek)          (tests)   (Claude)
+                                                                 │
+                                        escalation ladder if it misses:
+                              Flash ─▶ Pro (rewrite 1) ─▶ Pro (rewrite 2) ─▶ Opus author
 ```
 
-Claude authors a precise spec (acceptance criteria: interface, behavior, constraints,
-edge cases), dispatches it to DeepSeek, and reviews the returned code against that spec.
-On a miss it climbs the ladder — a Flash pass, two Pro rewrites, then Opus writes it
-directly as the terminal stage. DeepSeek dollars are billed to your own account and are
-not the constraint; the constraint is Claude quota, so every chunk resolved before the
-Opus stage is the real saving.
+Each coding task opens with a `Routing:` line (inline / one-shot / agent / pipeline). Claude turns
+your ask into a short intent plus a 2–4 bullet **definition of done**; for non-trivial work DeepSeek
+Pro drafts the plan and an independent **Opus judge** checks it against that done-list before any
+code. Implementation runs as a one-shot or a self-correcting agent gated by a **verify command**;
+Opus judges the final diff. On a miss it climbs the ladder — Flash, two Pro rewrites, then an Opus
+`author` subagent as the terminal stage. DeepSeek dollars are billed to your own account and are not
+the constraint; Claude subscription usage is, so every chunk resolved before Opus is the real saving.
+Full flow: [`docs/workflow.md`](docs/workflow.md).
 
 ## Layout
 

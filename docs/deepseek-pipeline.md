@@ -39,15 +39,18 @@ every choice toward resolving at Pro and avoiding needless Opus escalation.
 
 ## When to use the pipeline vs. implement directly
 
-- **If I explicitly say "implement it directly," "you write it," "handle it
-  yourself," or similar — skip the pipeline entirely and just write the code.**
-  This is guidance, not a control layer; a direct instruction overrides it.
-  Do not dispatch to DeepSeek when I've asked for a direct implementation.
-- **Use the pipeline for open-ended implementation tasks** that are spec-able and
-  where DeepSeek is likely to succeed — especially bulk or parallelizable work.
-- **When in doubt on hard/novel work, ask** whether I want it delegated or done
-  directly, rather than assuming. Hard work that will likely escalate to Opus
-  anyway is often cheaper (in Claude usage) done directly.
+The routing gate (see `CLAUDE.md`) decides this per task via a mandatory `Routing:` line.
+**`deepseek-oneshot` is the floor: Claude does not write implementation code by size.** The only
+two `inline` (Claude-writes-it) cases are context-triggered, never size-judged:
+
+- **If I explicitly say "implement it directly," "you write it," "handle it yourself,"** — write
+  the code inline. A direct instruction overrides the pipeline; do not dispatch to DeepSeek.
+- **A trivial edit tightly coupled to a live diagnosis** stays inline (the debugging carve-out).
+- **Everything else spec-able floors at a DeepSeek one-shot** and climbs from there (agent /
+  pipeline) by testability and file count — even small changes go to DeepSeek, eating a round-trip
+  on trivia rather than spending Claude output.
+- **When in doubt on hard/novel work, ask** whether I want it delegated or done inline. Hard work
+  that will likely escalate to Opus anyway is often cheaper (in Claude usage) done inline.
 
 ## Pre-flight — two leak checks before you dispatch
 
@@ -79,9 +82,10 @@ spec — and the plan itself is DeepSeek Pro's job for anything non-trivial:
   sentences. No acceptance criteria, no design write-up at this stage — the plan carries that.
   This short intent is the only up-front authoring Opus does.
 - **Then the split is one question: is the task short and one-shottable?**
-  - **Yes → the current model just does it** — write it directly, or a single
-    `implement_with_deepseek.py` one-shot. No separate plan step, no plan-judge; below this bar
-    the draft-then-judge round-trip costs more than just doing it.
+  - **Yes → a single `implement_with_deepseek.py` one-shot** (the floor for spec-able work). No
+    separate plan step, no plan-judge; below this bar the draft-then-judge round-trip costs more
+    than just dispatching it. Claude only writes it itself in the two `inline` cases (instructed,
+    or a trivial edit coupled to a live diagnosis) — not because it's short.
   - **No → ALL planning goes to DeepSeek Pro** (`--plan` swaps the system prompt to a planning
     persona: "produce a plan with acceptance criteria, do NOT write code"). Pro expands the
     short intent into the plan. Opus does NOT author it.
