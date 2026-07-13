@@ -47,6 +47,30 @@ with Claude. The point is to conserve Claude subscription usage: DeepSeek does t
 generation (and the long plans) you'd otherwise spend Claude quota on. Bias every choice toward
 resolving at DeepSeek and avoiding the Opus stage.
 
+## Routing gate — DO THIS FIRST, every coding task
+Before writing **any** implementation code, emit one line at the top of your response:
+
+```
+Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+```
+
+No Routing line before code is a process error. Pick the route:
+
+- **Tripwire (hard).** If the task touches **≥2 files** OR **≥2 languages** OR **>40 lines of
+  net-new logic**, Routing MUST NOT be `direct`. Choosing `direct` past a tripwire requires
+  naming the exception on the same line (e.g. `direct — 3 files but all one-line config`). The
+  numbers are a forcing function, not a verdict: they exist to deny you a *silent* inline exit,
+  not to classify the work for you.
+- **direct** — one file, <~20 net-new lines, OR I told you "write it yourself." You write it inline.
+- **deepseek-oneshot** — one self-contained file/function, no test loop needed →
+  `implement_with_deepseek.py`.
+- **deepseek-agent** — multi-file, testable, has a verify command → `deepseek_agent.py --verify`.
+- **pipeline** — non-trivial / needs a plan → `pipeline.py` (intent → Pro plan → judge → agent → judge).
+
+The bias is delegation: when two routes both fit, take the one **further from `direct`**. The
+gates below are the rationale; this line is what you execute. (A repo hook may enforce that the
+Routing decision was recorded before a code Write/Edit — see `docs/deepseek-pipeline.md`.)
+
 ## Session model: Sonnet for the session, Opus for judging and authorship
 Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
 off. Sonnet handles the chat, the short intent, orchestration, delegation decisions, and

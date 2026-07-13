@@ -9,3 +9,6 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Routing gate marker (transient)
+.claude/routing-ack
