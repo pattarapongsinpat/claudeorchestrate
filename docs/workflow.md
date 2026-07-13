@@ -26,9 +26,11 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 
 ## [1] Routing — current model
 
-**Default is delegate.** Two things sit outside the gate: `inline` (Claude writes it — ONLY when
-instructed or for a diagnosis-coupled trivial edit; the explicit exception, not a shape), and
-non-coding/operational tasks (git, commands, deploys, env — not routed, stay with the session).
+**Default is delegate.** A few things sit outside the gate: `inline` (Claude writes it — ONLY when
+instructed or for a diagnosis-coupled trivial edit; the explicit exception, not a shape);
+**dangerous/destructive commands** (`rm -rf`, `git reset --hard`, `push --force`, `DROP`, `oc
+delete`, deploys, overwriting data — Opus-only, never delegated, confirmed first); and
+non-coding/operational tasks (git, commands, env — not routed, stay with the session).
 Everything else emits one line choosing the shape:
 
 ```

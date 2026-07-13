@@ -48,12 +48,17 @@ generation (and the long plans) you'd otherwise spend Claude quota on. Bias ever
 resolving at DeepSeek and avoiding the Opus stage.
 
 ## Routing gate — pick the DeepSeek shape (default: delegate)
-**Every coding task delegates to DeepSeek by default.** Two things sit outside the gate:
+**Every coding task delegates to DeepSeek by default.** A few things sit outside the gate:
 
 - **`inline` — the explicit exception, not a shape.** Claude writes the code itself ONLY when (a) I
   said "you write it," or (b) it's a trivial edit tightly coupled to a live diagnosis. This is the
   only case Claude authors code, and it's never chosen because a change *looks* small. Record it as
   `Routing: inline — <which trigger>` (the hook and audit trail still want the line).
+- **Dangerous/destructive commands are Opus-only — never delegated.** Anything irreversible
+  (`rm -rf`, `git reset --hard`, `git push --force`, `DROP`/`DELETE`, `kubectl`/`oc delete`, prune,
+  deploys, overwriting data) is executed by the current model (Opus) directly, and confirmed first
+  per the usual norms. DeepSeek's agent can't run arbitrary shell anyway (only the verify command),
+  so this is a hard boundary, not just a preference.
 - **Non-coding/operational tasks** — running git, commands, deploys, env — aren't routed at all;
   they stay with the session.
 
