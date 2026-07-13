@@ -1,12 +1,12 @@
 # Full workflow
 
 The end-to-end flow the orchestrator runs, from a request to a merged change. Session runs on
-**Sonnet**; **Opus** is spent only as the `judge` and `author` subagents; **DeepSeek** (Pro/Flash)
-does the plan-drafting and code generation.
+the **current model**; **Opus** is spent only as the `judge` and `author` subagents; **DeepSeek**
+(Pro/Flash) does the plan-drafting and code generation.
 
 ```
 you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] Plan gate ──▶ [5] Implement ──▶ [6] Verify ──▶ [7] Diff gate ──▶ [8] Integrate
-        (Sonnet)         (Sonnet)       (Pro)        (Opus judge)      (DeepSeek)         (tests)        (Opus judge)      (Sonnet)
+       (session)        (session)      (Pro)        (Opus judge)      (DeepSeek)         (tests)        (Opus judge)     (session)
                                           │                                  ▲
                                     short/one-shot?                    escalation ladder
                                     yes → skip 3–4                     Flash→Pro→Pro→Opus author
@@ -16,7 +16,7 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 
 | Actor | Does | Cost |
 | --- | --- | --- |
-| **Sonnet** (session) | routing, intent, orchestration, integration, git | subscription usage |
+| **Current model** (session) | routing, intent, orchestration, integration, git | subscription usage |
 | **Opus `judge`** (subagent) | plan gate + diff gate — independent | subscription usage (kept minimal) |
 | **Opus `author`** (subagent) | terminal authorship when the ladder is exhausted | subscription usage (rare) |
 | **DeepSeek Pro/Flash** | plan drafting + code generation + self-correction | metered (own account) |
@@ -24,7 +24,7 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 
 ---
 
-## [1] Routing — Sonnet
+## [1] Routing — current model
 
 **Default is delegate.** Two things sit outside the gate: `inline` (Claude writes it — ONLY when
 instructed or for a diagnosis-coupled trivial edit; the explicit exception, not a shape), and
@@ -43,7 +43,7 @@ pipeline.
 
 | Route | When | Tool |
 | --- | --- | --- |
-| **inline** (exception) | ONLY "you write it" OR a trivial edit coupled to a live diagnosis | Sonnet writes it |
+| **inline** (exception) | ONLY "you write it" OR a trivial edit coupled to a live diagnosis | current model writes it |
 | **deepseek-oneshot** (floor) | one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
 | **pipeline** | anything larger or testable; drafts+judges a plan, then runs the agent | `pipeline.py` |
 
@@ -53,7 +53,7 @@ plan gate. Bare `deepseek_agent.py` is used only to re-run an already-judged pla
 Enforcement: a PreToolUse hook (`hooks/routing_gate.py`) blocks a code Write/Edit until a routing
 decision is recorded in `.claude/routing-ack`.
 
-## [2] Intent — Sonnet
+## [2] Intent — current model
 
 Turn the request into a short workable goal **plus a 2–4 bullet definition of done** — observable,
 falsifiable outcomes (e.g. `retries on 429/timeout`, `caps at N`, `existing calls unchanged`). Not a
@@ -117,7 +117,7 @@ Report each failed attempt in one line; explain the outcome only at the end.
 Cap: three DeepSeek attempts before Opus. A chunk that keeps failing usually has a spec problem, not
 a model problem.
 
-## [9] Integrate — Sonnet
+## [9] Integrate — current model
 
 Integrate accepted code, run the full verify once more, commit. For parallel work, collect every
 failed leg and batch them into a single Opus `author` pass at the end.

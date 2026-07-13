@@ -80,20 +80,20 @@ execute stage — use it only to re-run an already-judged plan: `Routing: deepse
 approved plan`. A repo hook may enforce that the Routing decision was recorded before a code
 Write/Edit — see `docs/deepseek-pipeline.md`.)
 
-## Session model: Sonnet for the session, Opus for judging and authorship
-Run the Claude Code session on **Sonnet** and spend Opus only where the strongest model pays
-off. Sonnet handles the chat, the short intent, orchestration, delegation decisions, and
-running the pipeline. Opus is invoked *as a subagent* only for two roles:
+## Session model: the current model runs the session, Opus judges and authors
+Run the Claude Code session on the current model and spend Opus only where the strongest model
+pays off. The current model handles the chat, the short intent, orchestration, delegation
+decisions, and running the pipeline. Opus is invoked *as a subagent* only for two roles:
 - **Judging → the `judge` subagent** (Opus, read-only). Delegate BOTH gates to it — the plan
   against the intent, and the diff against the plan. It returns PASS/FAIL with specific
   reasons and is independent by construction (fresh context, no anchoring on the session).
 - **Terminal authorship → the `author` subagent** (Opus). When DeepSeek exhausts the ladder,
   the failed leg goes to `author`, which writes the last stage directly and verifies it — not
-  to Sonnet.
+  the session model.
 
-This holds Opus usage to the high-value gates while the bulk of the session runs cheap on
-Sonnet. Everywhere below, "the current model" is Sonnet in this mode and "the Opus stage" is
-the `author` subagent. If you instead run the session directly on Opus, these are just you —
+This holds Opus usage to the high-value gates while the bulk of the session runs on the current
+model. Everywhere below, "the current model" is whatever runs this session and "the Opus stage" is
+the `author` subagent. If the current model is itself Opus, these are just you —
 no subagents needed.
 
 ## When to use it
@@ -229,8 +229,8 @@ prefix only, not on each fresh version under review.
 1. **Flash, first pass** (`--flash`). Review.
 2. **Pro, rewrite 1** — feed a specific, actionable critique back. Review.
 3. **Pro, rewrite 2** — one more critique-and-rewrite. Review.
-4. **Opus writes it directly** — only after Flash + two Pro rewrites miss. On a Sonnet session
-   this is the `author` subagent; on an Opus session it's you.
+4. **Opus writes it directly** — only after Flash + two Pro rewrites miss. When the current model
+   isn't Opus this is the `author` subagent; when the session already runs on Opus it's you.
 
 Cap: three DeepSeek attempts before Opus; don't loop past it. Announce the stage as you
 go. A chunk that keeps failing usually has a spec problem, not a model problem.

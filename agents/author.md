@@ -5,7 +5,7 @@ description: >-
   (Flash + two Pro rewrites, or the agentic loop could not pass verify) and the code must be
   written directly by the strongest model. Given the approved plan plus the best DeepSeek
   attempt and its diagnosed failures, it writes the implementation and verifies it. Invoke
-  from a Sonnet session so this last-resort authorship still runs on Opus. One failed leg per
+  from the main session so this last-resort authorship still runs on Opus. One failed leg per
   invocation; it does not spawn further subagents.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: opus
