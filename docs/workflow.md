@@ -1,0 +1,127 @@
+# Full workflow
+
+The end-to-end flow the orchestrator runs, from a request to a merged change. Session runs on
+**Sonnet**; **Opus** is spent only as the `judge` and `author` subagents; **DeepSeek** (Pro/Flash)
+does the plan-drafting and code generation.
+
+```
+you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] Plan gate ──▶ [5] Implement ──▶ [6] Verify ──▶ [7] Diff gate ──▶ [8] Integrate
+        (Sonnet)         (Sonnet)       (Pro)        (Opus judge)      (DeepSeek)         (tests)        (Opus judge)      (Sonnet)
+                                          │                                  ▲
+                                    short/one-shot?                    escalation ladder
+                                    yes → skip 3–4                     Flash→Pro→Pro→Opus author
+```
+
+## Roles
+
+| Actor | Does | Cost |
+| --- | --- | --- |
+| **Sonnet** (session) | routing, intent, orchestration, integration, git | subscription usage |
+| **Opus `judge`** (subagent) | plan gate + diff gate — independent | subscription usage (kept minimal) |
+| **Opus `author`** (subagent) | terminal authorship when the ladder is exhausted | subscription usage (rare) |
+| **DeepSeek Pro/Flash** | plan drafting + code generation + self-correction | metered (own account) |
+| **verify command** | objective pass/fail gate | free |
+
+---
+
+## [1] Routing — Sonnet
+
+Every coding task opens with one line before any code:
+
+```
+Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
+```
+
+**Tripwire (hard):** ≥2 files OR ≥2 languages OR >40 net-new logic lines → NOT `direct` unless you
+name the exception on the same line. Bias: when two routes fit, take the one further from `direct`.
+
+| Route | When | Tool |
+| --- | --- | --- |
+| **direct** | one file, <~20 new lines, or "you write it" | Sonnet writes it |
+| **deepseek-oneshot** | one self-contained file/function, no test loop | `implement_with_deepseek.py` |
+| **deepseek-agent** | multi-file/testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
+| **pipeline** | non-trivial, needs a plan drafted | `pipeline.py` (the default agent-scale entry) |
+
+Enforcement: a PreToolUse hook (`hooks/routing_gate.py`) blocks a code Write/Edit until a routing
+decision is recorded in `.claude/routing-ack`.
+
+## [2] Intent — Sonnet
+
+Turn the request into a short workable goal **plus a 2–4 bullet definition of done** — observable,
+falsifiable outcomes (e.g. `retries on 429/timeout`, `caps at N`, `existing calls unchanged`). Not a
+spec; it's the concrete target every downstream gate checks against. **If you can't write the
+done-list, the intent isn't ready — tighten it first.** For `direct`/`oneshot`, the done-list *is*
+the mini-spec and steps 3–4 are skipped.
+
+## [3] Plan — DeepSeek Pro
+
+Non-trivial tasks only. Pro (`--plan`) expands the intent into the plan, which MUST:
+- state its own **acceptance criteria** (interface, behavior, edge cases, error handling), and
+- name a **runnable verify command**.
+
+Claude does not author this plan.
+
+## [4] Plan gate — Opus `judge` (ALWAYS Opus, never DeepSeek)
+
+The one independent check that catches "Pro built the wrong thing" before any code burns — and the
+cheapest Opus touch (short plan vs short intent). The judge grades the plan's acceptance criteria
+against the intent's done-list on three yes/no questions:
+
+- **Coverage** — every done-bullet covered? (missing one → FAIL)
+- **Soundness** — edge cases and error handling right? (design mistake/misread → FAIL)
+- **Testability** — names a verify command that actually checks them? (no runnable check → FAIL)
+
+FAIL → specific critique back to Pro (or fix the intent if the done-list was the problem). PASS →
+implement.
+
+## [5] Implement — DeepSeek
+
+- **oneshot** → `implement_with_deepseek.py` (single dispatch).
+- **agent** → `deepseek_agent.py --verify "<cmd>" --repo .` — navigates the repo, edits, runs the
+  verify command, and self-corrects against it until it passes or a step cap hits. Clean-tree
+  precondition; `--allow-dirty` auto-stashes.
+- **parallel** → fan out 3–5 `deepseek-implementer` subagents on independent chunks (no shared
+  state/ordering). Each runs its own Flash→Pro→Pro and returns accepted code or a failed leg.
+
+## [6] Verify — the load-bearing gate (free, model-independent)
+
+The verify command is the objective check that costs zero subscription usage. The agent self-corrects
+against it in-loop, so the diff that reaches Opus is already test-passing — Opus judges design
+conformance, not mechanical bugs the tests already caught. **No verify signal → the agent collapses
+to a blind shot; always name one in the plan.**
+
+## [7] Diff gate — Opus `judge`
+
+Judge the final diff against the plan: every acceptance criterion met, nothing missing/wrong, no
+correctness hazards (reads surrounding files as needed). Conformance is the bar, not taste. PASS →
+integrate. FAIL → escalate.
+
+## [8] Escalation ladder (on a miss at [5]/[7])
+
+Report each failed attempt in one line; explain the outcome only at the end.
+
+1. **Flash** first pass.
+2. **Pro** rewrite 1 — specific critique fed back.
+3. **Pro** rewrite 2 — one more critique-and-rewrite.
+4. **Opus `author`** writes it directly and verifies — terminal stage, no independent review after,
+   so the check is that it runs.
+
+Cap: three DeepSeek attempts before Opus. A chunk that keeps failing usually has a spec problem, not
+a model problem.
+
+## [9] Integrate — Sonnet
+
+Integrate accepted code, run the full verify once more, commit. For parallel work, collect every
+failed leg and batch them into a single Opus `author` pass at the end.
+
+---
+
+## What lands where
+
+- **Opus (subscription usage):** intent, plan gate, diff gate, rare terminal authorship. Two small
+  judge touches carry the quality; the rest is delegated.
+- **DeepSeek (metered):** the plan, all generation, in-loop self-correction.
+- **Free:** the verify command — the real independent gate wherever tests exist.
+
+The single rule behind it all: **Claude designs, judges, and integrates; DeepSeek plans and writes;
+tests decide.**
