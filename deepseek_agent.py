@@ -253,7 +253,6 @@ def _grep(repo_root: Path, pattern: str, user_path: str) -> str:
     max_results = 100
     results: list[str] = []
     skipped_binary = 0
-    skipped_decode = 0
 
     if os.path.isfile(abs_root):
         files = [abs_root]
