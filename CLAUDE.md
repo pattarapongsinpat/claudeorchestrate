@@ -57,19 +57,21 @@ Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause
 No Routing line before code is a process error. Pick the route.
 
 **Two-tier tripwire (hard).** These forbid the *light* routes so Claude can't quietly under-scope
-— they are forcing functions, not a classifier:
-- **Forbids `direct`:** ≥2 files OR ≥2 languages OR >40 net-new logic lines OR the task needs a
-  test loop. Past this, `direct` requires naming the exception on the same line (e.g.
+— they are forcing functions, not a classifier. **"Files" means files EDITED/written; files read
+for reference (e.g. passed to oneshot via `-c`) never count** toward a tripwire.
+- **Forbids `direct`:** ≥2 files edited OR ≥2 languages OR >40 net-new logic lines OR the task
+  needs a test loop. Past this, `direct` requires naming the exception on the same line (e.g.
   `direct — 3 files but all one-line config`).
-- **Forbids `oneshot` too (wider ceiling):** ≥2 files OR ≥2 languages OR **>~120 net-new logic
-  lines** OR the task is testable / needs a verify loop → must be `agent`/`pipeline`. Oneshot gets
-  more line headroom than direct, but the moment work is multi-file **or** wants tests, it's off
+- **Forbids `oneshot` too (wider ceiling):** **≥3 files edited** OR ≥2 languages OR **>~120
+  net-new logic lines** OR the task is testable / needs a verify loop → must be `agent`/`pipeline`.
+  Oneshot may read as many context files as it needs and edit one or two; it gets more line
+  headroom than direct. But the moment it needs a third edited file **or** wants tests, it's off
   the table — those are exactly the gates oneshot skips.
 
 The routes:
 - **direct** — one file, <~20 net-new lines, OR I told you "write it yourself." You write it inline.
-- **deepseek-oneshot** — ONE self-contained file/function, no test loop, up to ~120 net-new lines
-  → `implement_with_deepseek.py`.
+- **deepseek-oneshot** — one or two self-contained files/functions, no test loop, up to ~120
+  net-new lines; reads any needed context via `-c` → `implement_with_deepseek.py`.
 - **deepseek-agent** — multi-file OR testable (has/needs a verify command) → `deepseek_agent.py --verify`.
 - **pipeline** — non-trivial / needs a plan → `pipeline.py` (intent → Pro plan → judge → agent → judge).
 

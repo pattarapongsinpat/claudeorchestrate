@@ -32,10 +32,12 @@ Every coding task opens with one line before any code:
 Routing: <direct | deepseek-oneshot | deepseek-agent | pipeline> — <one-clause reason>
 ```
 
-**Two-tier tripwire (hard)** — forbids the light routes so Claude can't quietly under-scope:
-- Forbids `direct`: ≥2 files OR ≥2 languages OR >40 net-new logic lines OR needs a test loop.
-- Forbids `oneshot` too (wider): ≥2 files OR ≥2 languages OR >~120 net-new logic lines OR
-  testable/needs a verify loop → must be `agent`/`pipeline`.
+**Two-tier tripwire (hard)** — forbids the light routes so Claude can't quietly under-scope.
+"Files" = files **edited**; reference reads (e.g. oneshot's `-c`) never count.
+- Forbids `direct`: ≥2 files edited OR ≥2 languages OR >40 net-new logic lines OR needs a test loop.
+- Forbids `oneshot` too (wider): ≥3 files edited OR ≥2 languages OR >~120 net-new logic lines OR
+  testable/needs a verify loop → must be `agent`/`pipeline`. (Oneshot may read unlimited context,
+  edit one or two files.)
 
 **Testability is the hard discriminator** — has/needs tests → `agent`/`pipeline`, never
 `direct`/`oneshot`. **Default upward on ambiguity** — unsure between two routes, take the one
@@ -44,7 +46,7 @@ further from `direct`.
 | Route | When | Tool |
 | --- | --- | --- |
 | **direct** | one file, <~20 new lines, or "you write it" | Sonnet writes it |
-| **deepseek-oneshot** | ONE file/function, no test loop, up to ~120 new lines | `implement_with_deepseek.py` |
+| **deepseek-oneshot** | one–two files edited, no test loop, up to ~120 new lines, reads any context via `-c` | `implement_with_deepseek.py` |
 | **deepseek-agent** | multi-file OR testable **and you already hold a judged plan** | `deepseek_agent.py --verify` |
 | **pipeline** | non-trivial, needs a plan drafted | `pipeline.py` (the default agent-scale entry) |
 
