@@ -2,14 +2,14 @@
 
 The end-to-end flow the orchestrator runs, from a request to a merged change. Session runs on
 the **current model**; **Opus** is spent only as the `judge` and `author` subagents; **DeepSeek**
-(Pro/Flash) does the plan-drafting and code generation.
+(Pro) does the plan-drafting and code generation.
 
 ```
 you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] Plan gate ──▶ [5] Implement ──▶ [6] Verify ──▶ [7] Diff gate ──▶ [8] Integrate
        (session)        (session)      (Pro)        (Opus judge)      (DeepSeek)         (tests)        (Opus judge)     (session)
                                           │                                  ▲
                                     short/one-shot?                    escalation ladder
-                                    yes → skip 3–4                     Flash→Pro→Pro→Opus author
+                                    yes → skip 3–4                     Pro→Pro→Opus author
 ```
 
 ## Roles
@@ -19,7 +19,7 @@ you ──▶ [1] Routing ──▶ [2] Intent ──▶ [3] Plan ──▶ [4] 
 | **Current model** (session) | routing, intent, orchestration, integration, git | subscription usage |
 | **Opus `judge`** (subagent) | plan gate + diff gate — independent | subscription usage (kept minimal) |
 | **Opus `author`** (subagent) | terminal authorship when the ladder is exhausted | subscription usage (rare) |
-| **DeepSeek Pro/Flash** | plan drafting + code generation + self-correction | metered (own account) |
+| **DeepSeek Pro** | plan drafting + code generation + self-correction | metered (own account) |
 | **verify command** | objective pass/fail gate | free |
 
 ---
@@ -91,32 +91,38 @@ implement.
   verify command, and self-corrects against it until it passes or a step cap hits. Clean-tree
   precondition; `--allow-dirty` auto-stashes.
 - **parallel** → fan out 3–5 `deepseek-implementer` subagents on independent chunks (no shared
-  state/ordering). Each runs its own Flash→Pro→Pro and returns accepted code or a failed leg.
+  state/ordering). Each runs its own Pro→Pro and returns accepted code or a failed leg.
 
 ## [6] Verify — the load-bearing gate (free, model-independent)
 
 The verify command is the objective check that costs zero subscription usage. The agent self-corrects
-against it in-loop, so the diff that reaches Opus is already test-passing — Opus judges design
+against it in-loop, so the diff that reaches Opus is usually already test-passing — Opus judges design
 conformance, not mechanical bugs the tests already caught. **No verify signal → the agent collapses
 to a blind shot; always name one in the plan.**
+
+Verify is a signal, not an absolute veto. A test can be mechanically unpassable — flaky,
+environment-specific, or a fixture the sandbox can't satisfy — leaving a *correct* diff red. So the
+**judge**, not verify alone, owns the escalation call: a red diff the judge confirms meets the plan
+PASSES and integrates, instead of burning the Opus `author` stage on code that was already right.
 
 ## [7] Diff gate — Opus `judge`
 
 Judge the final diff against the plan: every acceptance criterion met, nothing missing/wrong, no
 correctness hazards (reads surrounding files as needed). Conformance is the bar, not taste. PASS →
-integrate. FAIL → escalate.
+integrate. FAIL → escalate. A failing verify does not force FAIL: if the diff meets the plan and the
+red is a mechanically-unpassable test rather than a real defect, that's a PASS — the judge's call,
+not the test's.
 
 ## [8] Escalation ladder (on a miss at [5]/[7])
 
 Report each failed attempt in one line; explain the outcome only at the end.
 
-1. **Flash** first pass.
-2. **Pro** rewrite 1 — specific critique fed back.
-3. **Pro** rewrite 2 — one more critique-and-rewrite.
-4. **Opus `author`** writes it directly and verifies — terminal stage, no independent review after,
+1. **Pro** first pass.
+2. **Pro** rewrite — specific critique fed back.
+3. **Opus `author`** writes it directly and verifies — terminal stage, no independent review after,
    so the check is that it runs.
 
-Cap: three DeepSeek attempts before Opus. A chunk that keeps failing usually has a spec problem, not
+Cap: two Pro attempts before Opus. A chunk that keeps failing usually has a spec problem, not
 a model problem.
 
 ## [9] Integrate — current model

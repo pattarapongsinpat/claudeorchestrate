@@ -127,7 +127,6 @@ repo-root `.env`), so no per-project setup is needed.
 
 ```
 python implement_with_deepseek.py spec.md            # DeepSeek Pro (default)
-python implement_with_deepseek.py spec.md --flash    # DeepSeek Flash (cheaper)
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
 ```
 
@@ -159,28 +158,23 @@ For each unit of implementation work:
 
 ## The escalation ladder
 
-The goal is to resolve at DeepSeek (Flash or Pro) and avoid the Opus stage (which
-costs the most Claude usage). Bias toward getting it right at the DeepSeek tiers,
-but don't loop forever — a task that survives the ladder has a spec problem or
-genuinely needs you.
+The goal is to resolve at DeepSeek Pro and avoid the Opus stage (which costs the most
+Claude usage). Bias toward getting it right at Pro, but don't loop forever — a task that
+survives the ladder has a spec problem or genuinely needs you.
 
-1. **Flash, first pass** (`--flash`). Cheapest tier; review.
-2. **Pro, rewrite attempt 1** — feed a specific critique back, re-dispatch on Pro. Review.
-3. **Pro, rewrite attempt 2** — one more critique-and-rewrite on Pro. Review.
-4. **Opus (you) writes it directly** — if DeepSeek hasn't hit the spec after the
-   Flash pass and two Pro rewrites, stop delegating and implement it yourself
-   in-session. This is the final stage; don't loop past it.
+1. **Pro, first pass.** Dispatch; review.
+2. **Pro, rewrite** — feed a specific critique back, re-dispatch on Pro. Review.
+3. **Opus (you) writes it directly** — if DeepSeek hasn't hit the spec after the Pro
+   pass and one rewrite, stop delegating and implement it yourself in-session. This is
+   the final stage; don't loop past it.
 
 Notes:
-- The ladder starts cheap and climbs on capability: Flash for the first pass, Pro
-  for the two rewrites (Flash's misses are usually fixable with a concrete critique
-  at the stronger tier), Opus only when DeepSeek can't. DeepSeek dollar cost isn't
-  the constraint, so the point of climbing is capability, not price — every stage
-  resolved before Opus is the real Claude-usage saving.
-- The cap is one Flash pass plus two Pro rewrites (three DeepSeek attempts total)
-  before Opus. Do not exceed it — continuing to bounce a failing spec wastes
-  round-trips and usually means the spec, not the model, is the problem. When you
-  hit the Opus stage, say so.
+- The ladder runs Pro for both DeepSeek attempts, then climbs to Opus only when DeepSeek
+  can't. DeepSeek dollar cost isn't the constraint, so the point of climbing is
+  capability, not price — every stage resolved before Opus is the real Claude-usage saving.
+- The cap is two Pro attempts before Opus. Do not exceed it — continuing to bounce a
+  failing spec wastes round-trips and usually means the spec, not the model, is the
+  problem. When you hit the Opus stage, say so.
 - Announce which stage you're on as you go, so the ladder is visible.
 
 ## When a rewrite is needed
@@ -194,7 +188,7 @@ bouncing.
 ## Parallel work (subagents)
 
 Claude Code can dispatch multiple subagents concurrently, each running one
-independent chunk's DeepSeek ladder — Flash → Pro → Pro — and judging the result
+independent chunk's DeepSeek ladder — Pro → Pro — and judging the result
 against its own spec on Opus. Parallelism works here because that judge loop is
 self-contained per chunk, so the chunks don't have to funnel through a single
 reviewer. The subagents do the DeepSeek stages; the Opus authorship stage stays with
@@ -203,14 +197,14 @@ the main session. So:
 - **I (main session) initiate subagents.** Fan-out is my call — I decompose the
   job, write each chunk's spec, spawn the workers, and own integration. Subagents
   do not spawn further subagents.
-- **Each subagent runs Flash → Pro → Pro on its chunk, judging on Opus.** A subagent
+- **Each subagent runs Pro → Pro on its chunk, judging on Opus.** A subagent
   judging DeepSeek's output is NOT self-review: DeepSeek wrote the code, the subagent
   grades it against the spec, so author and reviewer are different models. It does
   not reach the Opus authorship stage itself — that stays with me.
-- **Every subagent reports back — pass or fail.** If its chunk passed at Flash or
-  Pro, it returns the accepted code. If it exhausted the Flash pass and both Pro
-  rewrites without passing, it returns the *failed leg*: the best attempt plus a
-  precise diagnosis of the remaining spec violations.
+- **Every subagent reports back — pass or fail.** If its chunk passed at Pro, it
+  returns the accepted code. If it exhausted the Pro pass and Pro rewrite without
+  passing, it returns the *failed leg*: the best attempt plus a precise diagnosis of
+  the remaining spec violations.
 - **I wait on all subagents, then batch the Opus stage at the end.** Rather than
   writing each failure the moment it escalates, I let all the parallel DeepSeek work
   finish, collect every failed leg, and implement them all myself in one Opus pass

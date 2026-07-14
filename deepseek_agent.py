@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """DeepSeek agentic coding loop: read/write files, list directories, grep,
 run a verify command, iterate until passing. Supports head+tail truncation
-(--max-output), dirty-tree auto-stash (--allow-dirty), and Flash→Pro
-escalation (--escalate)."""
+(--max-output) and dirty-tree auto-stash (--allow-dirty). Runs on DeepSeek Pro."""
 
 from __future__ import annotations
 
@@ -18,7 +17,7 @@ from typing import Any, List, Tuple
 from openai import OpenAI
 from openai.types.shared_params import FunctionDefinition
 
-from implement_with_deepseek import _resolve_api_key, DEEPSEEK_MODEL, DEEPSEEK_FLASH, DEEPSEEK_BASE_URL
+from implement_with_deepseek import _resolve_api_key, DEEPSEEK_MODEL, DEEPSEEK_BASE_URL
 
 # Tool definitions (OpenAI function calling format)
 TOOLS: list[dict[str, Any]] = [
@@ -516,16 +515,14 @@ def main() -> None:
         sys.stdout.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(
-        description="DeepSeek agentic coding loop: implement a task by reading/writing files, listing directories, searching with grep, and running a verify command. Supports head+tail truncation (--max-output), dirty-tree auto-stash (--allow-dirty), and Flash to Pro escalation (--escalate)."
+        description="DeepSeek agentic coding loop: implement a task by reading/writing files, listing directories, searching with grep, and running a verify command. Supports head+tail truncation (--max-output) and dirty-tree auto-stash (--allow-dirty). Runs on DeepSeek Pro."
     )
     parser.add_argument("task", type=str, help="Task: file path or inline text")
     parser.add_argument("--verify", type=str, default=None, help="Verification command (e.g. 'pytest -q')")
     parser.add_argument("--repo", type=str, default=".", help="Working directory (default: cwd)")
-    parser.add_argument("--flash", action="store_true", help="Use flash model instead of pro")
     parser.add_argument("--max-steps", type=int, default=25, help="Maximum iterations (default: 25)")
     parser.add_argument("--max-output", type=int, default=8000, help="Maximum kept characters for run_tests output (default: 8000)")
     parser.add_argument("--allow-dirty", action="store_true", help="Allow dirty working tree: auto-stash before run and restore afterward")
-    parser.add_argument("--escalate", action="store_true", help="If flash attempt fails (UNFINISHED), reset repo and retry with Pro model")
     args = parser.parse_args()
 
     task_text: str
@@ -559,7 +556,7 @@ def main() -> None:
             sys.exit(f"Error stashing: {e}")
 
     api_key = _resolve_api_key()
-    model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
+    model = DEEPSEEK_MODEL
     client = OpenAI(api_key=api_key, base_url=DEEPSEEK_BASE_URL)
 
     if args.verify:
@@ -579,43 +576,6 @@ def main() -> None:
     # Success means the tests actually pass; only without a verify command do we fall
     # back to "the agent stopped on its own" as the success signal.
     success = verify_passed if verify_passed is not None else finished
-
-    # Escalate only when --escalate, started on Flash, and the attempt did NOT succeed
-    # (verify still failing or step cap hit) — not merely because the loop stopped.
-    if args.escalate and args.flash and not success:
-        reason = "UNFINISHED (hit step cap)" if not finished else "verify FAILING"
-        print(f"Flash attempt: {reason} - escalating to Pro")
-        # Reset repo to its pristine pre-run state before the Pro retry.
-        try:
-            subprocess.run(
-                ["git", "reset", "--hard", "HEAD"],
-                cwd=repo,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=True,
-            )
-            subprocess.run(
-                ["git", "clean", "-fd"],
-                cwd=repo,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            sys.exit(f"Error resetting repo for escalation: {e}")
-        except subprocess.TimeoutExpired:
-            sys.exit("Error: git reset/clean timed out.")
-        except Exception as e:
-            sys.exit(f"Error resetting repo: {e}")
-
-        model = DEEPSEEK_MODEL
-        finished, done_summary, step_count, messages = run_agent_loop(
-            client, model, base_messages, args, repo
-        )
-        verify_passed, verify_report = _run_verify(args.verify, repo, args.max_output)
-        success = verify_passed if verify_passed is not None else finished
 
     # Final status keyed off the real verify result when there is one, so "the agent
     # stopped" cannot masquerade as success.
