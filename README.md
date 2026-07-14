@@ -15,7 +15,7 @@ you ─▶ intent+done-list ─▶ Pro plan ─▶ Opus judges plan ─▶ one-s
        (Claude)            (DeepSeek)   (Claude)            (DeepSeek)             (tests)   (Claude)
                                                                  │
                                         escalation ladder if it misses:
-                              Flash ─▶ Pro (rewrite 1) ─▶ Pro (rewrite 2) ─▶ Opus author
+                              Pro ─▶ Pro (rewrite) ─▶ Opus author
 ```
 
 Each coding task opens with a `Routing:` line — `deepseek-oneshot` or `pipeline` (with `inline` the
@@ -23,8 +23,8 @@ narrow exception when Claude writes it, and the agent being pipeline's back half
 your ask into a short intent plus a 2–4 bullet **definition of done**; for non-trivial work DeepSeek
 Pro drafts the plan and an independent **Opus judge** checks it against that done-list before any
 code. Implementation runs as a one-shot or a self-correcting agent gated by a **verify command**;
-Opus judges the final diff. On a miss it climbs the ladder — Flash, two Pro rewrites, then an Opus
-`author` subagent as the terminal stage. DeepSeek dollars are billed to your own account and are not
+Opus judges the final diff. On a miss it climbs the ladder — a Pro pass, one Pro rewrite, then an
+Opus `author` subagent as the terminal stage. DeepSeek dollars are billed to your own account and are not
 the constraint; Claude subscription usage is, so every chunk resolved before Opus is the real saving.
 Full flow: [`docs/workflow.md`](docs/workflow.md).
 
@@ -61,7 +61,6 @@ cp .env.example .env    # then paste your key
 
 ```
 python implement_with_deepseek.py spec.md            # Pro (default)
-python implement_with_deepseek.py spec.md --flash    # Flash (cheaper tier)
 python implement_with_deepseek.py req.md  --plan      # draft a plan/spec, not code
 python implement_with_deepseek.py "spec text"        # inline spec
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file

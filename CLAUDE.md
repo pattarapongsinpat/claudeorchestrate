@@ -13,9 +13,9 @@ tools and its operating rules.
   a spec (file path, inline string, or stdin), sends it to DeepSeek via the OpenAI-compatible
   client, prints the result. It holds **no escalation logic** — the ladder, review, and judging
   are the Claude session's job, described in the rules below. Two system prompts: implementation
-  (default) and planning (`--plan`). Model is Pro by default, Flash via `--flash`.
+  (default) and planning (`--plan`). Runs on DeepSeek Pro.
 - **`deepseek_agent.py`** — the agentic loop: DeepSeek reads/writes files, greps, and runs a
-  verify command, iterating until it passes or a step cap hits (`--allow-dirty`, `--escalate`).
+  verify command, iterating until it passes or a step cap hits (`--allow-dirty`).
 - **`pipeline.py`** — staged front door (`plan` / `run` / `auto`) over the two tools above.
 - **`hooks/routing_gate.py`** — PreToolUse hook that blocks a code Write/Edit until a routing
   decision is recorded in `.claude/routing-ack`.
@@ -32,7 +32,6 @@ interpreter is `python` (Python 3.13); `python3` is not on PATH.
 
 ```
 python implement_with_deepseek.py spec.md            # Pro (default)
-python implement_with_deepseek.py spec.md --flash    # Flash (cheaper)
 python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
 ```
@@ -176,7 +175,6 @@ auto-loads from `~/.claude/.env` or a repo-root `.env` — no per-project setup.
 
 ```
 python implement_with_deepseek.py spec.md            # Pro (default)
-python implement_with_deepseek.py spec.md --flash    # Flash (cheaper)
 python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
 python implement_with_deepseek.py spec.md -o out.py  # write to a file
 python implement_with_deepseek.py spec.md -c a.py -c b.py  # attach reference files
@@ -198,20 +196,21 @@ already caught. On UNFINISHED (cap hit) it emits a failed-leg report diagnosing 
 broken, as the handoff to Opus.
 
 ```
-python deepseek_agent.py plan.md --verify "pytest -q" --repo . --flash
+python deepseek_agent.py plan.md --verify "pytest -q" --repo .
 ```
 
 - Requires a git repo with a CLEAN working tree; emits `git diff` at the end for review.
   `--allow-dirty` auto-stashes your uncommitted work first and restores it after, keeping the
   diff purely the agent's own changes.
-- `--escalate` (with `--flash`) auto-climbs Flash→Pro: on a Flash UNFINISHED it resets the repo
-  to pristine and retries once on Pro. `--max-output N` tunes how much verify output the agent
-  sees (head+tail retained, default 8000 chars) so a big test log's failures aren't truncated away.
+- `--max-output N` tunes how much verify output the agent sees (head+tail retained, default 8000
+  chars) so a big test log's failures aren't truncated away.
 - `--verify CMD` is the load-bearing signal — and the agent's ONLY runnable command (no
   arbitrary shell). No verify command → no self-correction, so it collapses to one blind shot;
-  always pass one, and have the plan name it.
-- Outer ladder: `--flash` first → escalate to Pro (drop `--flash`) with a critique if the loop
-  stalls or the diff misses intent → Opus authors only if both miss.
+  always pass one, and have the plan name it. But verify is a signal, not a veto: a correct diff
+  left red by a mechanically-unpassable test (flaky, env-specific, unsatisfiable fixture) PASSES
+  at the judge — escalation is the judge's call, not the test's.
+- Outer ladder: Pro first → re-dispatch on Pro with a critique if the loop stalls or the diff
+  misses intent → Opus authors only if both Pro attempts miss.
 - Use the one-shot `implement_with_deepseek.py` for small single-file chunks — spinning up an
   agent for a 20-line function is wasted overhead (the single/near-mechanical gate).
 
@@ -221,7 +220,7 @@ One staged front door over the two tools, for the full intent → plan → agent
 ```
 python pipeline.py plan "INTENT"                              # DeepSeek drafts a plan; you judge it
 python pipeline.py run plan.md --verify "pytest -q" --repo .  # agent implements the approved plan
-python pipeline.py auto "INTENT" --verify "pytest -q" --repo . --flash   # one shot, SKIPS the plan gate
+python pipeline.py auto "INTENT" --verify "pytest -q" --repo .   # one shot, SKIPS the plan gate
 ```
 
 `plan` and `run` are two stages with an Opus judge gate between them (you review the plan
@@ -239,18 +238,17 @@ so Claude Code's automatic prompt caching stays warm — a minor tailwind on the
 prefix only, not on each fresh version under review.
 
 ## Escalation ladder
-1. **Flash, first pass** (`--flash`). Review.
-2. **Pro, rewrite 1** — feed a specific, actionable critique back. Review.
-3. **Pro, rewrite 2** — one more critique-and-rewrite. Review.
-4. **Opus writes it directly** — only after Flash + two Pro rewrites miss. When the current model
-   isn't Opus this is the `author` subagent; when the session already runs on Opus it's you.
+1. **Pro, first pass**. Judge.
+2. **Pro, rewrite** — feed a specific, actionable critique back. Judge.
+3. **Opus writes it directly** — only after Pro's first pass and one rewrite miss. When the current
+   model isn't Opus this is the `author` subagent; when the session already runs on Opus it's you.
 
-Cap: three DeepSeek attempts before Opus; don't loop past it. Announce the stage as you
+Cap: two Pro attempts before Opus; don't loop past it. Announce the stage as you
 go. A chunk that keeps failing usually has a spec problem, not a model problem.
 
 ## Parallel work
 For genuinely independent chunks, fan out ~3–5 `deepseek-implementer` subagents (each
-runs Flash → Pro → Pro and judges on Opus, escalating failed legs back to me). I
+runs Pro → Pro and judges on Opus, escalating failed legs back to me). I
 initiate them, wait on all, then batch the Opus stage at the end. Subagents don't spawn
 subagents. Only parallelize chunks with no shared state or ordering dependency.
 

@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 
-from implement_with_deepseek import implement, PLAN_SYSTEM, DEEPSEEK_MODEL, DEEPSEEK_FLASH
+from implement_with_deepseek import implement, PLAN_SYSTEM, DEEPSEEK_MODEL
 
 
 def _read_intent(arg: str) -> str:
@@ -40,9 +40,8 @@ def _agent_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "deepseek_agent.py")
 
 
-def _draft_plan(intent: str, flash: bool) -> str:
-    model = DEEPSEEK_FLASH if flash else DEEPSEEK_MODEL
-    return _strip_fences(implement(intent, model=model, system=PLAN_SYSTEM).strip())
+def _draft_plan(intent: str) -> str:
+    return _strip_fences(implement(intent, model=DEEPSEEK_MODEL, system=PLAN_SYSTEM).strip())
 
 
 def _run_agent(plan_file: str, agent_args: list[str]) -> int:
@@ -55,7 +54,7 @@ def _run_agent(plan_file: str, agent_args: list[str]) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    plan = _draft_plan(_read_intent(args.intent), args.flash)
+    plan = _draft_plan(_read_intent(args.intent))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(plan)
@@ -74,7 +73,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_auto(args: argparse.Namespace) -> int:
-    plan = _draft_plan(_read_intent(args.intent), flash=False)  # plan quality matters; always Pro
+    plan = _draft_plan(_read_intent(args.intent))  # plan always drafted on Pro
     print("=== PLAN (auto mode - plan-review gate SKIPPED) ===", file=sys.stderr)
     print(plan, file=sys.stderr)
     print("=== running agent against the above plan ===", file=sys.stderr)
@@ -104,13 +103,12 @@ def main() -> None:
     p_plan = sub.add_parser("plan", help="Draft a plan from an intent (review before running).")
     p_plan.add_argument("intent", help="Intent: file path or inline text.")
     p_plan.add_argument("-o", "--out", help="Write the plan to this file.")
-    p_plan.add_argument("--flash", action="store_true", help="Draft on Flash instead of Pro.")
     p_plan.set_defaults(func=cmd_plan)
 
     p_run = sub.add_parser("run", help="Run the agent against an approved plan file.")
     p_run.add_argument("plan", help="Approved plan file.")
     p_run.add_argument("agent_args", nargs=argparse.REMAINDER,
-                       help="Args forwarded to deepseek_agent.py (--verify, --repo, --flash, ...).")
+                       help="Args forwarded to deepseek_agent.py (--verify, --repo, ...).")
     p_run.set_defaults(func=cmd_run)
 
     p_auto = sub.add_parser("auto", help="intent -> plan -> agent in one shot (skips the plan gate).")

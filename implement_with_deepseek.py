@@ -13,7 +13,6 @@ import argparse
 from openai import OpenAI  # DeepSeek is OpenAI-compatible
 
 DEEPSEEK_MODEL = "deepseek-v4-pro"            # default
-DEEPSEEK_FLASH = "deepseek-v4-flash"          # --flash
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 SYSTEM = (
@@ -144,8 +143,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Implement a spec via DeepSeek (Pro by default).")
     parser.add_argument("spec", nargs="?", help="Spec file path or inline text (omit to read stdin).")
     parser.add_argument("-o", "--out", help="Write the implementation to this file.")
-    parser.add_argument("--flash", action="store_true",
-                        help="Use deepseek-v4-flash instead of pro (cheaper).")
     parser.add_argument("--plan", action="store_true",
                         help="Draft a plan/spec for the request instead of writing code.")
     parser.add_argument("-c", "--context", action="append", default=None,
@@ -158,7 +155,7 @@ def main() -> None:
     if not spec:
         parser.error("No spec provided (file, inline text, or stdin).")
 
-    model = DEEPSEEK_FLASH if args.flash else DEEPSEEK_MODEL
+    model = DEEPSEEK_MODEL
     system = PLAN_SYSTEM if args.plan else SYSTEM
     context_files = args.context or []
 

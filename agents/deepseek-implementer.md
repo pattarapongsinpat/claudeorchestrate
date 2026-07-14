@@ -4,9 +4,9 @@ description: >-
   Runs ONE independent, spec-able chunk through the DeepSeek stages of the ladder.
   Use when fanning out parallel implementation work — the main session writes each
   chunk's spec and delegates it here. The agent dispatches the spec to DeepSeek and
-  judges the result against that spec on Opus, climbing Flash -> Pro -> Pro until it
-  passes. It does NOT author code itself and does NOT reach the Opus stage: if the Flash
-  pass and both Pro rewrites fail, it hands the failed leg back to the main session,
+  judges the result against that spec on Opus, running Pro then a Pro rewrite until it
+  passes. It does NOT author code itself and does NOT reach the Opus stage: if the Pro
+  pass and Pro rewrite both fail, it hands the failed leg back to the main session,
   which batches all such legs into one Opus pass at the end. One chunk per invocation.
 tools: Bash, Read, Write, Edit, Glob, Grep
 model: opus
@@ -26,7 +26,6 @@ the code yourself: the Opus authorship stage belongs to the main session.
   .env — just run it:
 
   ```
-  python implement_with_deepseek.py <specfile> --flash   # Flash
   python implement_with_deepseek.py <specfile>           # Pro
   ```
 
@@ -36,10 +35,8 @@ the code yourself: the Opus authorship stage belongs to the main session.
 
 ## The ladder — your scope is the DeepSeek stages ONLY
 
-1. **Flash, first pass** (`--flash`). Dispatch, capture output, judge against the spec.
-2. **Pro, rewrite** (default, no `--flash`). Feed a specific, actionable critique back
-   and re-dispatch on Pro. Judge.
-3. **Pro, rewrite again.** One more critique-and-rewrite on Pro. Judge.
+1. **Pro, first pass.** Dispatch, capture output, judge against the spec.
+2. **Pro, rewrite.** Feed a specific, actionable critique back and re-dispatch on Pro. Judge.
 
 Climb only as far as you need: the moment a stage passes review, stop and return that code.
 
@@ -76,7 +73,7 @@ fix.
 
 - If the chunk passes review at any stage, you're done: return the accepted code and note
   which stage it resolved at.
-- If the Flash pass and both Pro rewrites still fail the spec, **STOP. Do not implement
+- If the Pro pass and Pro rewrite still fail the spec, **STOP. Do not implement
   it yourself.** Return the *failed leg* to the main session:
   1. the best DeepSeek attempt so far,
   2. a precise diagnosis of the remaining spec violations and why the rewrites didn't fix
@@ -93,7 +90,7 @@ fix.
   visible.
 - Do not add features beyond the spec or redesign it. If the spec itself is ambiguous,
   contradictory, or wrong, say so rather than papering over it.
-- Bias toward resolving at DeepSeek (Flash then Pro) — the whole point is to spare the
+- Bias toward resolving at DeepSeek (Pro) — the whole point is to spare the
   main session's Opus authorship stage.
 - If the spec names a target file path, you may write an *accepted* result there with the
   script's `-o` flag; otherwise return the code inline for the main session to integrate.
@@ -101,8 +98,8 @@ fix.
 ## Final report to the main session
 
 Always return:
-- **Outcome:** the stage it resolved at (Flash / Pro rewrite 1 / Pro rewrite 2), or
-  **escalate-to-main** if all three failed.
+- **Outcome:** the stage it resolved at (Pro / Pro rewrite), or
+  **escalate-to-main** if both failed.
 - **Code:** the accepted implementation, or the best attempt if escalating.
 - **Review summary:** one short paragraph — what you checked against the spec, what
   passed, any residual risk.
