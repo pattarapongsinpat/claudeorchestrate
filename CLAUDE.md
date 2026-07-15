@@ -34,15 +34,23 @@ interpreter is `python` (Python 3.13); `python3` is not on PATH.
 python implement_with_deepseek.py spec.md            # Pro (default)
 python implement_with_deepseek.py req.md  --plan      # draft a plan, not code
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+python implement_with_deepseek.py spec.md --no-context-check  # skip the context guard
 ```
 
 `DEEPSEEK_API_KEY` resolves in order: environment → `~/.claude/.env` → repo-root `.env`. Copy
 `.env.example` to `.env` to set it locally (`.env` is gitignored).
 
-There is **no test suite, build step, or linter** — don't look for one. Verify a change to the
-dispatcher by running it against `sample_spec.md` (or `--plan`) and checking the output; verify
-`deepseek_agent.py` / `pipeline.py` against a throwaway git repo with a real `--verify` command;
-a missing key exits with a clean message rather than a traceback.
+There is **no build step or linter** — don't look for one. The only tests are
+`test_context_check.py` (stdlib `unittest`, covering the context scanner), run with:
+
+```
+python -m unittest discover -q
+```
+
+Everything else is verified by hand: check a dispatcher change by running it against
+`sample_spec.md` (or `--plan`) and reading the output; check `deepseek_agent.py` /
+`pipeline.py` against a throwaway git repo with a real `--verify` command; a missing key
+exits with a clean message rather than a traceback.
 
 ---
 
@@ -199,6 +207,13 @@ miss, a critique cycle, and maybe an Opus climb, dwarfing anything saved by with
 it fully at dispatch; if you can't enumerate the context up front, that's a routing signal →
 pipeline. `--retries` wires the OpenAI client's `max_retries` so a throttle/network blip retries
 with backoff instead of failing the dispatch.
+
+**The context guard enforces this mechanically.** Before dispatching, the tool scans the spec
+for paths that exist on disk but weren't attached with `-c`, and exits 1 rather than briefing
+Pro with missing context — so the failure surfaces before the call is spent, not after the wrong
+code comes back. Files the spec wants *created* don't exist yet and never trip it. If it fires,
+the fix is almost always to attach the file, not to bypass; `--no-context-check` exists for the
+rare deliberate case.
 
 ## The agentic loop (`deepseek_agent.py`)
 For multi-file, *testable* work, `deepseek_agent.py` drives DeepSeek as a coding agent: it
