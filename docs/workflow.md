@@ -86,7 +86,11 @@ implement.
 
 ## [5] Implement — DeepSeek
 
-- **oneshot** → `implement_with_deepseek.py` (single dispatch).
+- **oneshot** → `implement_with_deepseek.py` (single dispatch). It sees ONLY the spec plus what
+  you attach with `-c`, and cannot fetch its own context — so enumerate every existing file the
+  task touches or depends on and attach them all. `-c` reads are DeepSeek input (metered, not the
+  constraint) and never count toward the tripwire: **write leanly, attach generously.** Can't
+  enumerate the context up front? That's a routing signal → pipeline.
 - **agent** → `deepseek_agent.py --verify "<cmd>" --repo .` — navigates the repo, edits, runs the
   verify command, and self-corrects against it until it passes or a step cap hits. Clean-tree
   precondition; `--allow-dirty` auto-stashes.

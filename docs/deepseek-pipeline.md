@@ -128,6 +128,7 @@ repo-root `.env`), so no per-project setup is needed.
 ```
 python implement_with_deepseek.py spec.md            # DeepSeek Pro (default)
 python implement_with_deepseek.py spec.md -o out.py  # write result to a file
+python implement_with_deepseek.py spec.md -c a.py -c b.py  # attach reference files
 ```
 
 ## The workflow
@@ -147,6 +148,24 @@ For each unit of implementation work:
    Opus stage, without spelling out the implementation line by line (at which point
    you've spent as much Claude usage as just writing it). Precise on *what correct
    means*, sparse on *how to do it*.
+
+   **Leanness is about prose, never about context — they are different budgets and
+   only one is scarce.** The spec's *words* are Claude output (the constrained axis).
+   The files you attach with `-c` are file reads billed to DeepSeek's metered input:
+   they cost nothing on subscription usage and never count toward the routing tripwire.
+   So **write leanly, attach generously.** Never paraphrase, summarize, or excerpt an
+   existing file into the spec — attach the real file and let the spec refer to it.
+   Under-attaching is the expensive mistake: a miss buys a critique cycle and can climb
+   to Opus, which dwarfs whatever you "saved" by withholding a file. Unsure whether Pro
+   needs it? Attach it.
+
+   **The one-shot cannot fetch its own context.** `deepseek_agent.py` navigates the repo
+   (`list_dir`, `grep`, read) and finds what it needs; `implement_with_deepseek.py` sees
+   ONLY the spec plus whatever `-c` you attached, and gets exactly one shot at it. So
+   before any one-shot dispatch, enumerate every existing file the task touches or depends
+   on — the file being changed, its callers, the interface or types it must match, a
+   sibling that sets the pattern — and attach them all. If you cannot enumerate the
+   context up front, that is a routing signal: use the pipeline and let the agent find it.
 
 2. **Dispatch.** Run the spec through `implement_with_deepseek.py`.
 

@@ -76,7 +76,7 @@ Routing: <deepseek-oneshot | pipeline> — <one-clause reason>
 ```
 
 - **deepseek-oneshot** — the floor: one or two files edited, no test loop, up to ~120 net-new lines;
-  reads any needed context via `-c` → `implement_with_deepseek.py`.
+  attach every file it depends on via `-c` (it cannot fetch its own) → `implement_with_deepseek.py`.
 - **pipeline** — anything larger or testable → `pipeline.py`: intent → Pro plan → **Opus judges the
   plan** → agent → verify → **Opus judges the diff**. The agent stage runs **automatically after the
   plan gate** — you do not route to it separately.
@@ -181,11 +181,24 @@ python implement_with_deepseek.py spec.md -c a.py -c b.py  # attach reference fi
 python implement_with_deepseek.py spec.md --retries 5     # transient-error retries (default 3)
 ```
 
-Use `-c/--context` (repeatable) whenever the spec needs to reference existing code — pass
-the real files instead of pasting them into the spec text; they're sent as reference-only
-context (the model is told not to reproduce them), keeping the spec itself lean. `--retries`
-wires the OpenAI client's `max_retries` so a throttle/network blip retries with backoff
-instead of failing the dispatch.
+Use `-c/--context` (repeatable) for **every existing file the task touches or depends on** —
+the file being changed, its callers, the interface/types it must match, a sibling that sets
+the pattern. Pass the real files instead of pasting them into the spec text; they're sent as
+reference-only context (the model is told not to reproduce them).
+
+**Write leanly, attach generously — they are different budgets and only one is scarce.**
+Leanness is about the spec's *prose* (Claude output). `-c` attachments are file reads billed
+to DeepSeek's metered input: they cost nothing on subscription usage and never count toward
+the tripwire. So never trade context away for leanness, and never summarize or excerpt an
+existing file into the spec — attach it. Under-attaching is the expensive error: it buys a
+miss, a critique cycle, and maybe an Opus climb, dwarfing anything saved by withholding a file.
+**Unsure whether DeepSeek needs a file? Attach it.**
+
+**A one-shot sees ONLY the spec plus `-c`.** The agent can `grep`/read to find its own context;
+`implement_with_deepseek.py` cannot — it gets one shot with exactly what you gave it. Provision
+it fully at dispatch; if you can't enumerate the context up front, that's a routing signal →
+pipeline. `--retries` wires the OpenAI client's `max_retries` so a throttle/network blip retries
+with backoff instead of failing the dispatch.
 
 ## The agentic loop (`deepseek_agent.py`)
 For multi-file, *testable* work, `deepseek_agent.py` drives DeepSeek as a coding agent: it
@@ -230,8 +243,9 @@ for small/trusted tasks only; you still review the final diff. Args after the pl
 `run`/`auto` forward straight to `deepseek_agent.py`.
 
 ## The loop
-Spec (explicit acceptance criteria; lean, precise on *what correct means*, sparse on
-*how*) → dispatch → review against the spec → escalate on failure. See `sample_spec.md`
+Spec (explicit acceptance criteria; lean prose, precise on *what correct means*, sparse on
+*how*; every existing file it depends on attached via `-c`) → dispatch → review against the
+spec → escalate on failure. See `sample_spec.md`
 for the spec format. Judging stays with Opus (independent gate); DeepSeek never judges its
 own work. To keep re-judges cheap, hold the spec text stable and run the stages back-to-back
 so Claude Code's automatic prompt caching stays warm — a minor tailwind on the reused

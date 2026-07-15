@@ -26,12 +26,20 @@ the code yourself: the Opus authorship stage belongs to the main session.
   .env — just run it:
 
   ```
-  python implement_with_deepseek.py <specfile>           # Pro
+  python implement_with_deepseek.py <specfile>                    # Pro
+  python implement_with_deepseek.py <specfile> -c a.py -c b.py    # attach reference files
   ```
 
 - You have full read access (Read, Glob, Grep) — read any file you need for context
   before writing the spec file or judging output.
 - Write the spec you were given to a temp file first, then point the script at it.
+- **Attach every existing file the chunk touches or depends on with `-c`** — the file being
+  changed, its callers, the interface/types it must match, a sibling that sets the pattern.
+  The dispatcher sees ONLY the spec plus what you attach; it cannot go find context itself.
+  `-c` reads are DeepSeek input (metered, not the constraint), so attaching is effectively
+  free — **write leanly, attach generously.** Never summarize an existing file into the spec;
+  attach it. Unsure whether Pro needs it? Attach it. Under-attaching is what causes a false
+  miss and burns a rewrite on a chunk that was never properly briefed.
 
 ## The ladder — your scope is the DeepSeek stages ONLY
 
