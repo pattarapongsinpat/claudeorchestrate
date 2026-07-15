@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""DeepSeek implementation dispatcher: send a spec, return code (or a plan via --plan).
+"""
+implement_with_deepseek.py — send a spec to DeepSeek and print the implementation.
 
-The escalation ladder lives in the Claude session, not here; this is just the dispatch.
-DEEPSEEK_API_KEY resolves from the environment, then ~/.claude/.env, then ./.env.
+The DEEPSEEK_API_KEY is resolved from the environment, then ~/.claude/.env, then ./.env.
 See CLAUDE.md for usage and the full workflow.
 """
 
@@ -33,6 +33,145 @@ CONTEXT_INSTRUCTION = (
     "Do NOT reproduce, echo, or re-output any of their contents unless the spec "
     "explicitly asks you to. Use them only to understand the current codebase."
 )
+
+# ---------------------------------------------------------------------------
+# Pre-dispatch context-file scanner
+# ---------------------------------------------------------------------------
+
+# Symmetric punctuation pairs to strip from token boundaries.
+_SYMMETRIC_PAIRS = [
+    ("\u201c", "\u201d"),   # left/right double quotation marks
+    ("\u2018", "\u2019"),   # left/right single quotation marks
+    ("'",      "'"),        # straight single quotes
+    ("(",      ")"),
+    ("[",      "]"),
+    ("{",      "}"),
+    ("<",      ">"),
+    ("\u00ab", "\u00bb"),   # guillemets «»
+]
+
+# Non-path punctuation stripped from both ends after pair removal.
+_STRIP_CHARS = ".,;:!?'\"()[]{}<>*&|#@"
+
+# Prefixes that mark a token as a URL (case-insensitive).
+_URL_PREFIXES = ("http://", "https://", "ftp://", "file://", "mailto:")
+
+
+def find_missing_context_files(
+    spec_text: str,
+    attached_files: list[str],
+    no_check: bool = False,
+) -> list[str]:
+    """Return a sorted list of absolute paths to *existing, unattached* files
+    referenced in *spec_text*.
+
+    *attached_files* are raw paths supplied via ``-c``.  *no_check* skips all
+    scanning and returns an empty list immediately.
+    """
+    if no_check:
+        return []
+
+    # Resolve attached files to canonical, case-normalised paths.
+    attached_norm: set[str] = set()
+    for p in attached_files:
+        try:
+            rp = os.path.realpath(p)
+            attached_norm.add(os.path.normcase(rp))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Tokenisation
+    # ------------------------------------------------------------------
+    tokens: list[str] = spec_text.split()  # split on any Unicode whitespace
+
+    # ------------------------------------------------------------------
+    # Candidate extraction
+    # ------------------------------------------------------------------
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+
+        # 1. Strip symmetric punctuation pairs repeatedly.
+        changed = True
+        while changed and len(token) >= 2:
+            changed = False
+            for left, right in _SYMMETRIC_PAIRS:
+                if token.startswith(left) and token.endswith(right):
+                    token = token[len(left):-len(right)]
+                    changed = True
+                    break
+
+        # 2. Strip individual leading/trailing non-path punctuation.
+        token = token.strip(_STRIP_CHARS)
+
+        if not token:
+            continue
+
+        # 3. Discard URLs / mailto.
+        lower = token.lower()
+        if lower.startswith(_URL_PREFIXES):
+            continue
+
+        # 4. Discard "www." domains.
+        if lower.startswith("www.") and "." in lower[4:]:
+            continue
+
+        # 5. Discard exactly "." or "..".
+        if lower in (".", ".."):
+            continue
+
+        # 6. Must contain a path separator or a file-extension dot.
+        has_path_sep = "/" in token or "\\" in token
+        has_ext_dot = False
+        if "." in token:
+            # a dot that is not at the very start or very end
+            idx = token.find(".")
+            while idx != -1:
+                if 0 < idx < len(token) - 1:
+                    has_ext_dot = True
+                    break
+                idx = token.find(".", idx + 1)
+
+        if not (has_path_sep or has_ext_dot):
+            continue
+
+        # ------------------------------------------------------------------
+        # Existence check
+        # ------------------------------------------------------------------
+        try:
+            candidate = os.path.abspath(token)
+        except Exception:
+            continue
+
+        if not os.path.isfile(candidate):
+            continue
+
+        try:
+            real = os.path.realpath(candidate)
+        except Exception:
+            continue
+
+        norm = os.path.normcase(real)
+
+        if norm in attached_norm:
+            continue
+
+        if norm not in seen:
+            seen.add(norm)
+            result.append(real)
+
+    result.sort()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Original helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def _load_env_file(path: str) -> dict[str, str]:
@@ -149,6 +288,8 @@ def main() -> None:
                         help="Context file (can be repeated). Contents are sent as reference before the spec.")
     parser.add_argument("--retries", type=int, default=3,
                         help="Number of retries for transient errors (default: 3).")
+    parser.add_argument("--no-context-check", action="store_true", default=False,
+                        help="Skip the pre-dispatch check for missing context files.")
     args = parser.parse_args()
 
     spec = _read_spec(args.spec).strip()
@@ -158,6 +299,27 @@ def main() -> None:
     model = DEEPSEEK_MODEL
     system = PLAN_SYSTEM if args.plan else SYSTEM
     context_files = args.context or []
+
+    # ------------------------------------------------------------------
+    # Pre-dispatch context check
+    # ------------------------------------------------------------------
+    attached_paths = [os.path.abspath(p) for p in context_files]
+    missing = find_missing_context_files(spec, attached_paths, args.no_context_check)
+
+    if missing:
+        print(
+            "Error: The specification references the following existing files "
+            "that were not attached with -c:",
+            file=sys.stderr,
+        )
+        for path in missing:
+            print(f"  {path}", file=sys.stderr)
+        print(
+            "Please attach them using -c /path/to/file or pass "
+            "--no-context-check to skip this check.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     code = implement(
         spec,
