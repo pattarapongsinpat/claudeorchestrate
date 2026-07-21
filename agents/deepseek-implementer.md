@@ -94,6 +94,7 @@ fix.
 ## Rules
 
 - One chunk per invocation. Do NOT spawn further subagents.
+- A passing build proves nothing by itself. Finishing with an empty git diff is a FAILURE.
 - Announce which stage the chunk resolved at (or that it escalated) so the ladder stays
   visible.
 - Do not add features beyond the spec or redesign it. If the spec itself is ambiguous,
