@@ -7,6 +7,8 @@ Run the pipeline. Halt immediately if `.pipeline/HALT` appears.
    Then baseline the suite: `pytest -q`. It MUST be red. A suite that is all
    green before any code means the generated tests assert nothing about the
    change. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
+   Commit the generated tests so the tree is clean for the step loop and the
+   run diff includes them: `git add -A && git commit -qm "generated tests"`.
 3. /gate — rewrite to plan_final.json (adds a per-step `tests` selector).
 4. For each step in order:
    - Confirm the tree is clean. If not, STOP — a dirty tree means a
