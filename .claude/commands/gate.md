@@ -32,6 +32,17 @@ Checks:
    `files_allowed` path are serialized by the runner regardless, so do not
    rely on parallelism there; add a dep edge if their order matters. A false
    dep only costs speed; a missing one costs correctness.
+10. Signature fidelity. The intent names exact public signatures — function
+    names, parameter names, parameter ORDER. Compare every call in the actual
+    test file `tests/test_generated.py` against them. Where a test calls a
+    function with reordered or renamed parameters (e.g. intent `clamp(x, lo, hi)`
+    but the test calls `clamp(lo, hi, x)`), EDIT `tests/test_generated.py` so the
+    calls use the intent's signature, preserving the asserted behavior — swap the
+    arguments to match, do not change expected values. The tests define the
+    interface the coder builds to, so a wrong signature here becomes wrong code,
+    caught only later at /verify after the coders have run. You are the strong
+    model reading both artifacts; the weak tester will not reliably get argument
+    order right, so this correction belongs here. Note any fix in `gate_notes.md`.
 
 Write `.pipeline/plan_final.json` — same schema plus the `tests` field,
 tightened. Every `files_allowed` entry must be a subset of
