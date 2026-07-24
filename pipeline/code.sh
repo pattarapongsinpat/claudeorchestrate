@@ -10,8 +10,10 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 BASE=$(git rev-parse HEAD)
 
-mapfile -t ALLOWED < <(jq -r ".steps[]|select(.id==\"$STEP\")|.files_allowed[]" "$PLAN")
-TESTSEL=$(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // empty" "$PLAN")
+# tr -d '\r': jq on Windows (and CRLF-checked-out plan files) emits trailing CR,
+# which would make every allowlist and selector comparison silently miss.
+mapfile -t ALLOWED < <(jq -r ".steps[]|select(.id==\"$STEP\")|.files_allowed[]" "$PLAN" | tr -d '\r')
+TESTSEL=$(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // empty" "$PLAN" | tr -d '\r')
 rm -f /tmp/feedback.md
 
 # A selector that matches no test would make every iteration exit 5 and escalate.
@@ -54,44 +56,42 @@ for i in 1 2 3; do
     ./pipeline/ctx.sh "${ALLOWED[@]}"
     echo
     echo "## Read-only context — do NOT modify these"
-    ./pipeline/ctx.sh $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN")
+    ./pipeline/ctx.sh $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
   } > /tmp/step.md
   [[ -f /tmp/feedback.md ]] && cat /tmp/feedback.md >> /tmp/step.md
 
-  ./pipeline/ds.sh prompts/coder.txt /tmp/step.md "$MODEL" > /tmp/patch.diff
+  ./pipeline/ds.sh prompts/coder.txt /tmp/step.md "$MODEL" > /tmp/coder.out
 
-  # NOOP is checked FIRST: it carries no diff markers, so the malformed guard
-  # below would otherwise reject a correct "already satisfied" signal.
-  grep -qx 'NOOP' /tmp/patch.diff && { echo "NOOP $STEP"; exit 0; }
-  if [[ ! -s /tmp/patch.diff ]] || ! grep -q '^\(---\|+++\|@@\)' /tmp/patch.diff; then
-    { echo "EMPTY OR MALFORMED OUTPUT."
-      echo "Output a unified diff only, starting with '--- a/<path>'."
-      echo "No prose, no markdown fences, no explanation."
-      echo "If the step is already satisfied, output exactly: NOOP"
+  grep -qx 'NOOP' /tmp/coder.out && { echo "NOOP $STEP"; exit 0; }
+  if [[ ! -s /tmp/coder.out ]] || ! grep -q '^<<<<<<< FILE ' /tmp/coder.out; then
+    { echo "NO FILE BLOCKS FOUND."
+      echo "For each changed file emit its COMPLETE contents between"
+      echo "  <<<<<<< FILE <path>"
+      echo "  >>>>>>> ENDFILE"
+      echo "Nothing outside the blocks. If already satisfied, output: NOOP"
     } > /tmp/feedback.md
     continue
   fi
 
-  if ! git apply --check /tmp/patch.diff 2>/tmp/apply.err; then
-    { echo "PATCH DID NOT APPLY:"; cat /tmp/apply.err; } > /tmp/feedback.md
+  # apply_files.sh writes only allowlisted blocks and refuses the rest, so an
+  # out-of-scope file never reaches disk. Non-zero => at least one violation.
+  if ! ./pipeline/apply_files.sh /tmp/coder.out "${ALLOWED[@]}" > /tmp/viol.out 2>&1; then
+    { echo "SCOPE VIOLATION — reverted. Redo within bounds."
+      echo "Files outside allowlist (not written): $(tr '\n' ' ' < /tmp/viol.out)"
+      echo "Allowed only: ${ALLOWED[*]}"
+    } > /tmp/feedback.md
     continue
   fi
-  git apply /tmp/patch.diff
 
-  # git diff omits untracked files, so a NEW file outside the allowlist would
-  # evade this check and then leak into the next step. Include untracked.
+  # Allowlist is enforced at write time above; these catch a dependency or test
+  # file that IS in the allowlist but must still not be edited here.
   TOUCHED=$( { git diff "$BASE" --name-only; git ls-files --others --exclude-standard; } | sort -u )
-  VIOL=""
-  for f in $TOUCHED; do
-    printf '%s\n' "${ALLOWED[@]}" | grep -qxF "$f" || VIOL+="$f "
-  done
   DEPS=$(git diff "$BASE" -- package.json requirements.txt pyproject.toml Cargo.toml \
          2>/dev/null | grep '^+[^+]' || true)
   TESTS=$(printf '%s\n' $TOUCHED | grep -E '(test_|_test\.|\.test\.|/tests?/)' || true)
 
-  if [[ -n "$VIOL$DEPS$TESTS" ]]; then
+  if [[ -n "$DEPS$TESTS" ]]; then
     { echo "SCOPE VIOLATION — reverted. Redo within bounds."
-      [[ -n "$VIOL"  ]] && echo "Files outside allowlist: $VIOL"
       [[ -n "$DEPS"  ]] && echo "Dependencies added: $DEPS"
       [[ -n "$TESTS" ]] && echo "Test files modified: $TESTS"
       echo "Allowed only: ${ALLOWED[*]}"
@@ -103,9 +103,9 @@ for i in 1 2 3; do
     echo "PASS $STEP (iteration $i)"
     exit 0
   fi
-  { echo "TESTS FAILED — your patch was reverted."
+  { echo "TESTS FAILED — your changes were reverted."
     echo "The files you will see next are the ORIGINAL ones, not your attempt."
-    echo "Produce a complete patch from scratch. Do not assume prior edits exist."
+    echo "Re-output complete file blocks from scratch. Do not assume prior edits exist."
     tail -40 /tmp/test.out
   } > /tmp/feedback.md
 done

@@ -1,5 +1,19 @@
-Implement ONLY the step given. Output a unified diff, nothing else —
-no prose, no explanation, no fences.
+Implement ONLY the step given.
+
+For every file you change, output its COMPLETE new contents inside a block:
+
+<<<<<<< FILE <path>
+<the entire file, exactly as it should exist afterward>
+>>>>>>> ENDFILE
+
+Rules for the blocks:
+- Output the whole file, not a diff and not a fragment. The file shown to you
+  with "cat -n" is the current content; the leading line numbers are NOT part
+  of the file — do not reproduce them.
+- One block per changed file. Emit blocks only for files in files_allowed.
+- Output nothing outside the blocks: no prose, no explanation, no markdown
+  fences.
+- If the step is already satisfied, output exactly: NOOP
 
 Modify ONLY files in files_allowed.
 
