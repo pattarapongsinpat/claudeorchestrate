@@ -265,6 +265,12 @@ Write tests from the intent. You will NOT see the implementation plan;
 this is deliberate. Test the goal, not a presumed structure.
 
 Rules:
+- Import the MODULE under test and reference symbols as attributes
+  (e.g. `import pkg.mod as m` then `m.func(...)`), not
+  `from pkg.mod import func`. Steps are implemented incrementally, so a
+  symbol may not exist yet; attribute access makes only that symbol's tests
+  fail, whereas a top-level `from ... import` breaks collection for the whole
+  file and blocks every earlier step from going green.
 - Assert on observable behavior and public interfaces only.
 - No assertions about internal helpers, private functions, or call order.
 - Cover each Assumption in the intent with at least one test — assumptions
@@ -272,6 +278,11 @@ Rules:
 - Include tests that would FAIL if a Non-goal were violated where detectable.
 - Output runnable test code only.
 ```
+
+The module-attribute import rule matters because the whole suite lives in one generated file.
+A step that implements only its own symbol must still leave the file collectable, or its tests
+error at import time and it can never go green — the single most likely multi-step failure, and
+the trigger for splitting tests per step (see §10) if it recurs.
 
 ---
 
@@ -686,6 +697,10 @@ Run the pipeline. Halt immediately if `.pipeline/HALT` appears.
    Then baseline the suite: `pytest -q`. It MUST be red. A suite that is all
    green before any code means the generated tests assert nothing about the
    change. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
+   Commit the generated tests so the tree is clean for the step loop and the
+   run diff includes them: `git add -A && git commit -qm "generated tests"`.
+   Without this the untracked test file leaves the tree dirty and the step
+   loop's entry guard aborts before step 1.
 3. /gate — rewrite to plan_final.json (adds a per-step `tests` selector).
 4. For each step in order:
    - Confirm the tree is clean. If not, STOP — a dirty tree means a

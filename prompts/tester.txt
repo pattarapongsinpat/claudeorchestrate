@@ -2,6 +2,12 @@ Write tests from the intent. You will NOT see the implementation plan;
 this is deliberate. Test the goal, not a presumed structure.
 
 Rules:
+- Import the MODULE under test and reference symbols as attributes
+  (e.g. `import pkg.mod as m` then `m.func(...)`), not
+  `from pkg.mod import func`. Steps are implemented incrementally, so a
+  symbol may not exist yet; attribute access makes only that symbol's tests
+  fail, whereas a top-level `from ... import` breaks collection for the whole
+  file and blocks every earlier step from going green.
 - Assert on observable behavior and public interfaces only.
 - No assertions about internal helpers, private functions, or call order.
 - Cover each Assumption in the intent with at least one test — assumptions
