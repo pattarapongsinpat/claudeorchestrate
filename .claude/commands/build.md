@@ -9,17 +9,12 @@ Run the pipeline. Halt immediately if `.pipeline/HALT` appears.
    change. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
    Commit the generated tests so the tree is clean for the step loop and the
    run diff includes them: `git add -A && git commit -qm "generated tests"`.
-3. /gate — rewrite to plan_final.json (adds a per-step `tests` selector).
-4. For each step in order:
-   - Confirm the tree is clean. If not, STOP — a dirty tree means a
-     previous step failed to commit and its work would be destroyed.
-   - `git rev-parse HEAD > .pipeline/step_base` — pre-step SHA, so review
-     scopes to this step and a NOOP contributes nothing.
-   - `./pipeline/code.sh <id>`
-   - On success: `git add -A && git commit -qm "step <id>"`
-     Append this step's files:
-     `git diff --name-only "$(cat .pipeline/step_base)" >> .pipeline/touched.log`.
-   - On ESCALATE: stop. Do not attempt later steps, do not commit.
+3. /gate — rewrite to plan_final.json (adds per-step `tests` selector and `deps`).
+4. Run the steps: `./pipeline/waves.sh`. It schedules the plan into dependency
+   waves, runs dep-free file-disjoint steps in parallel git worktrees, commits
+   and cherry-picks each success back, and appends to `.pipeline/touched.log`.
+   On any step's ESCALATE it stops with the partial commits in place and writes
+   `.pipeline/ESCALATE`; do not continue.
 5. If a trigger fired (including a repeat-touched file):
    run `./pipeline/review_ctx.sh`, then /review.
    review_ctx.sh must run first — /review reads its output.
