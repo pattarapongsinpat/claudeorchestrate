@@ -332,6 +332,17 @@ Checks:
    `files_allowed` path are serialized by the runner regardless, so do not
    rely on parallelism there; add a dep edge if their order matters. A false
    dep only costs speed; a missing one costs correctness.
+10. Signature fidelity. The intent names exact public signatures — function
+    names, parameter names, parameter ORDER. Compare every call in the actual
+    test file `tests/test_generated.py` against them. Where a test calls a
+    function with reordered or renamed parameters (e.g. intent `clamp(x, lo, hi)`
+    but the test calls `clamp(lo, hi, x)`), EDIT `tests/test_generated.py` so the
+    calls use the intent's signature, preserving the asserted behavior — swap the
+    arguments to match, do not change expected values. The tests define the
+    interface the coder builds to, so a wrong signature here becomes wrong code,
+    caught only later at /verify after the coders have run. You are the strong
+    model reading both artifacts; the weak tester will not reliably get argument
+    order right, so this correction belongs here. Note any fix in `gate_notes.md`.
 
 Write `.pipeline/plan_final.json` — same schema plus the `tests` field,
 tightened. Every `files_allowed` entry must be a subset of
@@ -791,11 +802,12 @@ Run the pipeline. Halt immediately if `.pipeline/HALT` appears.
    Then baseline the suite: `pytest -q`. It MUST be red. A suite that is all
    green before any code means the generated tests assert nothing about the
    change. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
-   Commit the generated tests so the tree is clean for the step loop and the
+3. /gate — rewrite to plan_final.json (per-step `tests` selector and `deps`) and
+   correct any test-signature drift in `tests/test_generated.py`. Then commit the
+   (possibly gate-corrected) tests so the tree is clean for the step loop and the
    run diff includes them: `git add -A && git commit -qm "generated tests"`.
-   Without this the untracked test file leaves the tree dirty and the step
-   loop's entry guard aborts before step 1.
-3. /gate — rewrite to plan_final.json (adds per-step `tests` selector and `deps`).
+   Committing here (not before the gate) also keeps the untracked test file from
+   leaving the tree dirty when the step loop's entry guard runs.
 4. Run the steps: `./pipeline/waves.sh`. It schedules the plan into dependency
    waves, runs dep-free file-disjoint steps in parallel git worktrees, commits
    and cherry-picks each success back, and appends to `.pipeline/touched.log`.
