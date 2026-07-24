@@ -367,7 +367,7 @@ fi
 MODEL=deepseek-v4-flash
 for i in 1 2 3; do
   git checkout "$BASE" -- .
-  git clean -fdq -- "${ALLOWED[@]}" 2>/dev/null || true
+  git clean -fdq 2>/dev/null || true   # entry guard guarantees a clean tree, so every untracked file here is this run's
 
   [[ $i -ge 2 ]] && MODEL=deepseek-v4-pro
 
@@ -385,6 +385,9 @@ for i in 1 2 3; do
 
   ./pipeline/ds.sh prompts/coder.txt /tmp/step.md "$MODEL" > /tmp/patch.diff
 
+  # NOOP is checked FIRST: it carries no diff markers, so the malformed guard
+  # below would otherwise reject a correct "already satisfied" signal.
+  grep -qx 'NOOP' /tmp/patch.diff && { echo "NOOP $STEP"; exit 0; }
   if [[ ! -s /tmp/patch.diff ]] || ! grep -q '^\(---\|+++\|@@\)' /tmp/patch.diff; then
     { echo "EMPTY OR MALFORMED OUTPUT."
       echo "Output a unified diff only, starting with '--- a/<path>'."
@@ -393,7 +396,6 @@ for i in 1 2 3; do
     } > /tmp/feedback.md
     continue
   fi
-  grep -qx 'NOOP' /tmp/patch.diff && { echo "NOOP $STEP"; exit 0; }
 
   if ! git apply --check /tmp/patch.diff 2>/tmp/apply.err; then
     { echo "PATCH DID NOT APPLY:"; cat /tmp/apply.err; } > /tmp/feedback.md
@@ -401,7 +403,9 @@ for i in 1 2 3; do
   fi
   git apply /tmp/patch.diff
 
-  TOUCHED=$(git diff "$BASE" --name-only)
+  # git diff omits untracked files, so a NEW file outside the allowlist would
+  # evade this check and then leak into the next step. Include untracked.
+  TOUCHED=$( { git diff "$BASE" --name-only; git ls-files --others --exclude-standard; } | sort -u )
   VIOL=""
   for f in $TOUCHED; do
     printf '%s\n' "${ALLOWED[@]}" | grep -qxF "$f" || VIOL+="$f "
@@ -432,7 +436,7 @@ for i in 1 2 3; do
 done
 
 git checkout "$BASE" -- .
-git clean -fdq -- "${ALLOWED[@]}" 2>/dev/null || true
+git clean -fdq 2>/dev/null || true
 { echo "step: $STEP"
   echo "exhausted 3 iterations"
   echo "--- last feedback ---"
