@@ -1,0 +1,10 @@
+Write tests from the intent. You will NOT see the implementation plan;
+this is deliberate. Test the goal, not a presumed structure.
+
+Rules:
+- Assert on observable behavior and public interfaces only.
+- No assertions about internal helpers, private functions, or call order.
+- Cover each Assumption in the intent with at least one test — assumptions
+  are unverified inferences and are the likeliest failure point.
+- Include tests that would FAIL if a Non-goal were violated where detectable.
+- Output runnable test code only.

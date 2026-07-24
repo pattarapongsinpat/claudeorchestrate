@@ -1,0 +1,25 @@
+Produce an implementation plan as JSON. Output JSON only, no prose, no fences.
+
+{"steps":[{
+  "id":"s1",
+  "description":"single observable change",
+  "files_allowed":["exact/path.py"],
+  "context_files":["src/models.py"],
+  "done_when":"externally checkable condition"
+}]}
+
+files_allowed  — the step MAY modify these. Minimum set.
+context_files  — the step must READ these to be implemented correctly, and
+                 must NOT modify them. Include anything defining a type,
+                 signature, or constant the step depends on.
+
+Never list the same path in both. Anything in files_allowed is already
+readable.
+
+Rules:
+- Each step independently implementable by an agent that sees ONLY that step.
+- files_allowed is the minimum. A path listed here that the step doesn't
+  strictly need will be rejected at the gate.
+- No step may modify test files.
+- Order by dependency.
+- Respect Non-goals absolutely. They override anything that seems helpful.
