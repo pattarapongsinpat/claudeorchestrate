@@ -5,6 +5,7 @@ Produce an implementation plan as JSON. Output JSON only, no prose, no fences.
   "description":"single observable change",
   "files_allowed":["exact/path.py"],
   "context_files":["src/models.py"],
+  "deps":[],
   "done_when":"externally checkable condition"
 }]}
 
@@ -12,6 +13,11 @@ files_allowed  — the step MAY modify these. Minimum set.
 context_files  — the step must READ these to be implemented correctly, and
                  must NOT modify them. Include anything defining a type,
                  signature, or constant the step depends on.
+deps           — ids of steps that must finish first because this step reads
+                 or builds on their output. Keep it truthful and minimal:
+                 steps with no dep edge and disjoint files_allowed run in
+                 PARALLEL, so a false dep serializes needlessly and a missing
+                 dep lets a step run before the code it needs exists.
 
 Never list the same path in both. Anything in files_allowed is already
 readable.

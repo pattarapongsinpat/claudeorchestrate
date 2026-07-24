@@ -48,6 +48,7 @@ project/
 │  ├─ tests.sh
 │  ├─ code.sh
 │  ├─ apply_files.sh
+│  ├─ waves.sh
 │  └─ run.sh
 ├─ prompts/
 │  ├─ planner.txt
@@ -163,9 +164,9 @@ set -euo pipefail
   echo
   echo "## Files in scope — current contents"
   ./pipeline/ctx.sh $(jq -r '.allowed_files[]' .pipeline/intent.json)
-} > /tmp/pin.md
+} > $WORK/pin.md
 
-./pipeline/ds.sh prompts/planner.txt /tmp/pin.md deepseek-v4-pro > .pipeline/plan.md
+./pipeline/ds.sh prompts/planner.txt $WORK/pin.md deepseek-v4-pro > .pipeline/plan.md
 ```
 
 `pipeline/tests.sh`
@@ -176,18 +177,18 @@ set -euo pipefail
 [[ -f .pipeline/HALT ]] && { echo "halted at intent"; exit 1; }
 
 # intent + signatures ONLY. Never the plan.
-cat .pipeline/intent.md > /tmp/tin.md
+cat .pipeline/intent.md > $WORK/tin.md
 {
   echo
   echo "## Existing interfaces"
   rg --no-heading -n '^(def |class |func |export function |type |interface )' src/ || true
-} >> /tmp/tin.md
+} >> $WORK/tin.md
 
 # Materialize the tests to a file pytest actually discovers. A spec that only
 # lives in .pipeline/ gates nothing — the loop would run the repo's old tests
 # and "pass" a step that changed the target behavior not at all.
 mkdir -p tests
-./pipeline/ds.sh prompts/tester.txt /tmp/tin.md deepseek-v4-pro \
+./pipeline/ds.sh prompts/tester.txt $WORK/tin.md deepseek-v4-pro \
   | tee .pipeline/tests_spec.md > tests/test_generated.py
 ```
 
@@ -238,6 +239,7 @@ Produce an implementation plan as JSON. Output JSON only, no prose, no fences.
   "description":"single observable change",
   "files_allowed":["exact/path.py"],
   "context_files":["src/models.py"],
+  "deps":[],
   "done_when":"externally checkable condition"
 }]}
 
@@ -245,6 +247,11 @@ files_allowed  — the step MAY modify these. Minimum set.
 context_files  — the step must READ these to be implemented correctly, and
                  must NOT modify them. Include anything defining a type,
                  signature, or constant the step depends on.
+deps           — ids of steps that must finish first because this step reads
+                 or builds on their output. Keep it truthful and minimal:
+                 steps with no dep edge and disjoint files_allowed run in
+                 PARALLEL, so a false dep serializes needlessly and a missing
+                 dep lets a step run before the code it needs exists.
 
 Never list the same path in both. Anything in files_allowed is already
 readable.
@@ -318,6 +325,13 @@ Checks:
    selected by at least one step. A step with no matching test is a step
    nothing verifies — flag it in `gate_notes.md` rather than inventing a
    selector.
+9. Fix `deps`. Each step lists exactly the earlier steps whose output it
+   consumes — a step whose `context_files` names another step's not-yet-written
+   file needs that step in `deps`. This drives parallelism: `waves.sh` runs
+   dep-free, file-disjoint steps concurrently. Two steps sharing a
+   `files_allowed` path are serialized by the runner regardless, so do not
+   rely on parallelism there; add a dep edge if their order matters. A false
+   dep only costs speed; a missing one costs correctness.
 
 Write `.pipeline/plan_final.json` — same schema plus the `tests` field,
 tightened. Every `files_allowed` entry must be a subset of
@@ -347,11 +361,16 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 BASE=$(git rev-parse HEAD)
 
+# Per-invocation scratch dir so parallel code.sh runs (waves.sh) never clobber
+# each other's temp files.
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
 # tr -d '\r': jq on Windows (and CRLF-checked-out plan files) emits trailing CR,
 # which would make every allowlist and selector comparison silently miss.
 mapfile -t ALLOWED < <(jq -r ".steps[]|select(.id==\"$STEP\")|.files_allowed[]" "$PLAN" | tr -d '\r')
 TESTSEL=$(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // empty" "$PLAN" | tr -d '\r')
-rm -f /tmp/feedback.md
+rm -f $WORK/feedback.md
 
 # A selector that matches no test would make every iteration exit 5 and escalate.
 # Fall back to the full suite in that case.
@@ -371,7 +390,7 @@ run_tests() {                       # scoped to the step when the gate assigned 
 # Red-before: a step whose tests already pass at BASE asserts nothing about it,
 # so the loop's exit condition is satisfiable without real work. Non-fatal —
 # a refactor step may legitimately keep tests green — but surfaced for review.
-if [[ -n "$TESTSEL" ]] && run_tests > /tmp/redcheck.out 2>&1; then
+if [[ -n "$TESTSEL" ]] && run_tests > $WORK/redcheck.out 2>&1; then
   { echo "step: $STEP"
     echo "tests '$TESTSEL' already pass at BASE — step is not gated by its tests"
   } > ".pipeline/WARN_${STEP}"
@@ -394,29 +413,29 @@ for i in 1 2 3; do
     echo
     echo "## Read-only context — do NOT modify these"
     ./pipeline/ctx.sh $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
-  } > /tmp/step.md
-  [[ -f /tmp/feedback.md ]] && cat /tmp/feedback.md >> /tmp/step.md
+  } > $WORK/step.md
+  [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
-  ./pipeline/ds.sh prompts/coder.txt /tmp/step.md "$MODEL" > /tmp/coder.out
+  ./pipeline/ds.sh prompts/coder.txt $WORK/step.md "$MODEL" > $WORK/coder.out
 
-  grep -qx 'NOOP' /tmp/coder.out && { echo "NOOP $STEP"; exit 0; }
-  if [[ ! -s /tmp/coder.out ]] || ! grep -q '^<<<<<<< FILE ' /tmp/coder.out; then
+  grep -qx 'NOOP' $WORK/coder.out && { echo "NOOP $STEP"; exit 0; }
+  if [[ ! -s $WORK/coder.out ]] || ! grep -q '^<<<<<<< FILE ' $WORK/coder.out; then
     { echo "NO FILE BLOCKS FOUND."
       echo "For each changed file emit its COMPLETE contents between"
       echo "  <<<<<<< FILE <path>"
       echo "  >>>>>>> ENDFILE"
       echo "Nothing outside the blocks. If already satisfied, output: NOOP"
-    } > /tmp/feedback.md
+    } > $WORK/feedback.md
     continue
   fi
 
   # apply_files.sh writes only allowlisted blocks and refuses the rest, so an
   # out-of-scope file never reaches disk. Non-zero => at least one violation.
-  if ! ./pipeline/apply_files.sh /tmp/coder.out "${ALLOWED[@]}" > /tmp/viol.out 2>&1; then
+  if ! ./pipeline/apply_files.sh $WORK/coder.out "${ALLOWED[@]}" > $WORK/viol.out 2>&1; then
     { echo "SCOPE VIOLATION — reverted. Redo within bounds."
-      echo "Files outside allowlist (not written): $(tr '\n' ' ' < /tmp/viol.out)"
+      echo "Files outside allowlist (not written): $(tr '\n' ' ' < $WORK/viol.out)"
       echo "Allowed only: ${ALLOWED[*]}"
-    } > /tmp/feedback.md
+    } > $WORK/feedback.md
     continue
   fi
 
@@ -432,19 +451,19 @@ for i in 1 2 3; do
       [[ -n "$DEPS"  ]] && echo "Dependencies added: $DEPS"
       [[ -n "$TESTS" ]] && echo "Test files modified: $TESTS"
       echo "Allowed only: ${ALLOWED[*]}"
-    } > /tmp/feedback.md
+    } > $WORK/feedback.md
     continue
   fi
 
-  if run_tests > /tmp/test.out 2>&1; then
+  if run_tests > $WORK/test.out 2>&1; then
     echo "PASS $STEP (iteration $i)"
     exit 0
   fi
   { echo "TESTS FAILED — your changes were reverted."
     echo "The files you will see next are the ORIGINAL ones, not your attempt."
     echo "Re-output complete file blocks from scratch. Do not assume prior edits exist."
-    tail -40 /tmp/test.out
-  } > /tmp/feedback.md
+    tail -40 $WORK/test.out
+  } > $WORK/feedback.md
 done
 
 git checkout "$BASE" -- .
@@ -452,7 +471,7 @@ git clean -fdq 2>/dev/null || true
 { echo "step: $STEP"
   echo "exhausted 3 iterations"
   echo "--- last feedback ---"
-  cat /tmp/feedback.md 2>/dev/null || true
+  cat $WORK/feedback.md 2>/dev/null || true
 } > .pipeline/ESCALATE
 echo "ESCALATE: $STEP exhausted 3 iterations" >&2
 exit 1
@@ -557,6 +576,81 @@ done < "$OUT"
 
 exit $viol
 ```
+
+---
+
+## 6b. Parallel execution across steps
+
+`pipeline/waves.sh` runs the coding phase. It schedules steps into dependency **waves** and, within
+a wave, runs steps with **disjoint `files_allowed`** concurrently — each in its own `git worktree`
+branched from the wave base, each running `code.sh` unchanged. A successful step is committed in its
+worktree and cherry-picked back; disjoint files make the merge conflict-free. Steps that depend on
+each other, or that share a file, are serialized (the next wave branches from the merged result, so a
+later step sees the earlier one's code). With no deps and disjoint files it is fully parallel; with a
+linear dep chain it degrades to the sequential loop.
+
+Two properties make this safe rather than clever:
+
+- **The worktree is the isolation boundary.** Each parallel `code.sh` has its own working tree and
+  index, so its revert invariant (`git checkout BASE -- .` + `git clean -fdq`) touches only its own
+  checkout. The shared object store is the only contention, and git locks it. `code.sh` also uses a
+  per-invocation `mktemp -d` for scratch, so two coders never share `$WORK/coder.out`.
+- **The allowlist is the merge guarantee.** Steps batched together are file-disjoint by construction,
+  so cherry-picking their commits in sequence never conflicts. A conflict means the plan lied about
+  disjointness; `waves.sh` aborts the cherry-pick and stops rather than guessing.
+
+On any step's ESCALATE the run stops with the already-merged commits in place (matching the sequential
+design), and the failed step's `.pipeline/ESCALATE` is surfaced. Worktrees and `wt/*` branches are torn
+down on exit.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+PLAN=.pipeline/plan_final.json
+
+deps_of(){  jq -r --arg id "$1" '.steps[]|select(.id==$id)|.deps[]?'        "$PLAN" | tr -d '\r'; }
+files_of(){ jq -r --arg id "$1" '.steps[]|select(.id==$id)|.files_allowed[]' "$PLAN" | tr -d '\r'; }
+mapfile -t REMAINING < <(jq -r '.steps[].id' "$PLAN" | tr -d '\r')
+declare -A DONE=()
+
+while ((${#REMAINING[@]})); do
+  # ready = deps satisfied; batch = maximal file-disjoint subset of ready
+  ready=(); for s in "${REMAINING[@]}"; do
+    ok=1; while read -r d; do [[ -z "$d" ]] && continue; [[ -n "${DONE[$d]:-}" ]] || ok=0; done < <(deps_of "$s")
+    ((ok)) && ready+=("$s"); done
+  batch=(); declare -A used=(); for s in "${ready[@]}"; do
+    conflict=0; while read -r f; do [[ -n "${used[$f]:-}" ]] && conflict=1; done < <(files_of "$s")
+    if ((!conflict)); then batch+=("$s"); while read -r f; do used["$f"]=1; done < <(files_of "$s"); fi
+  done; unset used
+
+  BASE=$(git rev-parse HEAD)
+  declare -A PIDS=()
+  for s in "${batch[@]}"; do
+    wt=".pipeline/wt/$s"; git worktree add -q -b "wt/$s" "$wt" "$BASE"
+    mkdir -p "$wt/.pipeline"; cp "$PLAN" "$wt/.pipeline/plan_final.json"
+    ( cd "$wt" && ./pipeline/code.sh "$s" > .pipeline/code.log 2>&1 ) &
+    PIDS["$s"]=$!
+  done
+  for s in "${batch[@]}"; do
+    if wait "${PIDS[$s]}"; then
+      wt=".pipeline/wt/$s"
+      [[ -n "$(git -C "$wt" status --porcelain)" ]] && { git -C "$wt" add -A; git -C "$wt" commit -qm "step $s"; }
+      tip=$(git -C "$wt" rev-parse HEAD)
+      [[ "$tip" != "$BASE" ]] && { git cherry-pick "$tip" >/dev/null; files_of "$s" >> .pipeline/touched.log; }
+      DONE["$s"]=1
+    else
+      cp ".pipeline/wt/$s/.pipeline/ESCALATE" .pipeline/ESCALATE 2>/dev/null || echo "step: $s" > .pipeline/ESCALATE
+      echo "ESCALATE: $s" >&2; exit 1
+    fi
+  done
+  newrem=(); for s in "${REMAINING[@]}"; do [[ -n "${DONE[$s]:-}" ]] || newrem+=("$s"); done
+  REMAINING=("${newrem[@]}")
+done
+```
+
+The listing above is condensed; the shipped script adds worktree cleanup, cycle detection, and
+cherry-pick conflict handling. Review now scopes to `run_base..HEAD` (the whole run) rather than a
+single `step_base`, which is what you want once steps no longer run in a fixed order.
 
 ---
 
@@ -701,17 +795,12 @@ Run the pipeline. Halt immediately if `.pipeline/HALT` appears.
    run diff includes them: `git add -A && git commit -qm "generated tests"`.
    Without this the untracked test file leaves the tree dirty and the step
    loop's entry guard aborts before step 1.
-3. /gate — rewrite to plan_final.json (adds a per-step `tests` selector).
-4. For each step in order:
-   - Confirm the tree is clean. If not, STOP — a dirty tree means a
-     previous step failed to commit and its work would be destroyed.
-   - `git rev-parse HEAD > .pipeline/step_base` — pre-step SHA, so review
-     scopes to this step and a NOOP contributes nothing.
-   - `./pipeline/code.sh <id>`
-   - On success: `git add -A && git commit -qm "step <id>"`
-     Append this step's files:
-     `git diff --name-only "$(cat .pipeline/step_base)" >> .pipeline/touched.log`.
-   - On ESCALATE: stop. Do not attempt later steps, do not commit.
+3. /gate — rewrite to plan_final.json (adds per-step `tests` selector and `deps`).
+4. Run the steps: `./pipeline/waves.sh`. It schedules the plan into dependency
+   waves, runs dep-free file-disjoint steps in parallel git worktrees, commits
+   and cherry-picks each success back, and appends to `.pipeline/touched.log`.
+   On any step's ESCALATE it stops with the partial commits in place and writes
+   `.pipeline/ESCALATE`; do not continue.
 5. If a trigger fired (including a repeat-touched file):
    run `./pipeline/review_ctx.sh`, then /review.
    review_ctx.sh must run first — /review reads its output.

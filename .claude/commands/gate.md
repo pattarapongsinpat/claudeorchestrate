@@ -25,6 +25,13 @@ Checks:
    selected by at least one step. A step with no matching test is a step
    nothing verifies — flag it in `gate_notes.md` rather than inventing a
    selector.
+9. Fix `deps`. Each step lists exactly the earlier steps whose output it
+   consumes — a step whose `context_files` names another step's not-yet-written
+   file needs that step in `deps`. This drives parallelism: `waves.sh` runs
+   dep-free, file-disjoint steps concurrently. Two steps sharing a
+   `files_allowed` path are serialized by the runner regardless, so do not
+   rely on parallelism there; add a dep edge if their order matters. A false
+   dep only costs speed; a missing one costs correctness.
 
 Write `.pipeline/plan_final.json` — same schema plus the `tests` field,
 tightened. Every `files_allowed` entry must be a subset of
