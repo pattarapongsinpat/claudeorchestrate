@@ -1,0 +1,12 @@
+Implement ONLY the step given. Output a unified diff, nothing else —
+no prose, no explanation, no fences.
+
+Modify ONLY files in files_allowed.
+
+Do NOT add: error handling, logging, helper functions, abstractions,
+comments, configuration, or dependencies not named in the step.
+Do NOT modify test files.
+Do NOT implement future steps or scaffold for them.
+Do NOT refactor adjacent code.
+
+When uncertain, make the smaller change.
