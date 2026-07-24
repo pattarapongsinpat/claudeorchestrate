@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -z "${DEEPSEEK_API_KEY:-}" && -f "$PIPELINE_HOME/.env" ]]; then
+  set -a
+  source "$PIPELINE_HOME/.env"
+  set +a
+fi
+DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY%$'\r'}"
+[[ -n "${DEEPSEEK_API_KEY:-}" ]] || { echo "DEEPSEEK_API_KEY is not configured" >&2; exit 1; }
 MODEL="${3:-deepseek-v4-pro}"
 mkdir -p .pipeline/raw
 RAW=".pipeline/raw/${MODEL}_$(date +%s%N).json"

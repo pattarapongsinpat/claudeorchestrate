@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f .pipeline/HALT ]] && { echo "halted at intent"; exit 1; }
 
 {
@@ -9,7 +10,7 @@ set -euo pipefail
   rg --files | head -200
   echo
   echo "## Files in scope — current contents"
-  ./pipeline/ctx.sh $(jq -r '.allowed_files[]' .pipeline/intent.json)
+  "$PIPELINE_HOME/pipeline/ctx.sh" $(jq -r '.allowed_files[]' .pipeline/intent.json)
 } > /tmp/pin.md
 
-./pipeline/ds.sh prompts/planner.txt /tmp/pin.md deepseek-v4-pro > .pipeline/plan.md
+"$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/planner.txt" /tmp/pin.md deepseek-v4-pro > .pipeline/plan.md

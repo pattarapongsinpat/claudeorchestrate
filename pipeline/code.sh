@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STEP="$1"
 PLAN=.pipeline/plan_final.json
 
@@ -58,14 +59,14 @@ for i in 1 2 3; do
     jq -r ".steps[]|select(.id==\"$STEP\")" "$PLAN"
     echo
     echo "## Files you may modify — current contents"
-    ./pipeline/ctx.sh "${ALLOWED[@]}"
+    "$PIPELINE_HOME/pipeline/ctx.sh" "${ALLOWED[@]}"
     echo
     echo "## Read-only context — do NOT modify these"
-    ./pipeline/ctx.sh $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
+    "$PIPELINE_HOME/pipeline/ctx.sh" $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
   } > $WORK/step.md
   [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
-  ./pipeline/ds.sh prompts/coder.txt $WORK/step.md "$MODEL" > $WORK/coder.out
+  "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/coder.txt" $WORK/step.md "$MODEL" > $WORK/coder.out
 
   grep -qx 'NOOP' $WORK/coder.out && { echo "NOOP $STEP"; exit 0; }
   if [[ ! -s $WORK/coder.out ]] || ! grep -q '^<<<<<<< FILE ' $WORK/coder.out; then
@@ -80,7 +81,7 @@ for i in 1 2 3; do
 
   # apply_files.sh writes only allowlisted blocks and refuses the rest, so an
   # out-of-scope file never reaches disk. Non-zero => at least one violation.
-  if ! ./pipeline/apply_files.sh $WORK/coder.out "${ALLOWED[@]}" > $WORK/viol.out 2>&1; then
+  if ! "$PIPELINE_HOME/pipeline/apply_files.sh" $WORK/coder.out "${ALLOWED[@]}" > $WORK/viol.out 2>&1; then
     { echo "SCOPE VIOLATION — reverted. Redo within bounds."
       echo "Files outside allowlist (not written): $(tr '\n' ' ' < $WORK/viol.out)"
       echo "Allowed only: ${ALLOWED[*]}"

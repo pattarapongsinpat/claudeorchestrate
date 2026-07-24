@@ -7,6 +7,7 @@
 # are serialized. With no deps and disjoint files it is fully parallel; with a
 # linear dep chain it degrades to the sequential loop.
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLAN=.pipeline/plan_final.json
 [[ -f "$PLAN" ]] || { echo "no $PLAN" >&2; exit 1; }
 
@@ -68,7 +69,7 @@ while ((${#REMAINING[@]})); do
     git worktree add -q -b "wt/$s" "$wt" "$BASE"
     mkdir -p "$wt/.pipeline"
     cp "$PLAN" "$wt/.pipeline/plan_final.json"
-    ( cd "$wt" && ./pipeline/code.sh "$s" > .pipeline/code.log 2>&1 ) &
+    ( cd "$wt" && "$PIPELINE_HOME/pipeline/code.sh" "$s" > .pipeline/code.log 2>&1 ) &
     PIDS["$s"]=$!
   done
 
