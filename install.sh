@@ -59,7 +59,7 @@ fi
 [[ -f "$RUNTIME/.env" ]] || cp "$RUNTIME/.env.example" "$RUNTIME/.env"
 
 missing=()
-for command in git jq curl rg pytest; do
+for command in git jq curl rg; do
   command -v "$command" >/dev/null 2>&1 || missing+=("$command")
 done
 if ((${#missing[@]})); then

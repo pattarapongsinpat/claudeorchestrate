@@ -9,13 +9,13 @@ Run the pipeline for this command's arguments. Halt immediately if `.pipeline/HA
 2. Run in ONE turn so outputs can't contaminate each other:
    `bash "$HOME/.claudeochestrate/pipeline/plan.sh"` and
    `bash "$HOME/.claudeochestrate/pipeline/tests.sh"`
-   Then baseline the suite: `pytest -q`. It MUST be red. A suite that is all
-   green before any code means the generated tests assert nothing about the
-   change. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
+   Then run `bash "$HOME/.claudeochestrate/pipeline/run_tests.sh"`.
+   When `.pipeline/toolchain.json` has `generated_tests: true`, the suite MUST
+   be red. If green, write `.pipeline/HALT` (test spec is wrong) and stop.
+   Existing-suite adapters may be green before implementation.
 3. /gate — rewrite to plan_final.json (per-step `tests` selector and `deps`) and
-   correct any test-signature drift in `tests/test_generated.py`. Then commit the
-   (possibly gate-corrected) tests so the tree is clean for the step loop and the
-   run diff includes them: `git add -A && git commit -qm "generated tests"`.
+   correct any test-signature drift in the configured generated test file. Then
+   run `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
 4. Run the steps: `bash "$HOME/.claudeochestrate/pipeline/waves.sh"`. It schedules the plan into dependency
    waves, runs dep-free file-disjoint steps in parallel git worktrees, commits
    and cherry-picks each success back, and appends to `.pipeline/touched.log`.

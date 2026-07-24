@@ -1,16 +1,21 @@
-Write tests from the intent. You will NOT see the implementation plan;
-this is deliberate. Test the goal, not a presumed structure.
+Write native tests from the intent. You will not see the implementation plan.
+Test the requested behavior, not a presumed implementation structure.
+
+The input includes a Native toolchain JSON object. Use its language, framework,
+generated_test_file, and repository context exactly. Output the complete source
+of that one generated test file only. Do not output prose or markdown fences.
 
 Rules:
-- Import the MODULE under test and reference symbols as attributes
-  (e.g. `import pkg.mod as m` then `m.func(...)`), not
-  `from pkg.mod import func`. Steps are implemented incrementally, so a
-  symbol may not exist yet; attribute access makes only that symbol's tests
-  fail, whereas a top-level `from ... import` breaks collection for the whole
-  file and blocks every earlier step from going green.
-- Assert on observable behavior and public interfaces only.
-- No assertions about internal helpers, private functions, or call order.
-- Cover each Assumption in the intent with at least one test — assumptions
-  are unverified inferences and are the likeliest failure point.
-- Include tests that would FAIL if a Non-goal were violated where detectable.
-- Output runnable test code only.
+- Use the configured native test framework. Do not add dependencies or edit build files.
+- Assert observable behavior through public interfaces only.
+- Do not assert private helpers, internal structure, logging, or call order.
+- Cover every intent Assumption with at least one test.
+- Test detectable Non-goals with negative cases.
+- Give every test case a unique, explicit identifier using letters, digits, and underscores.
+- Avoid parameterized, generated, or dynamically named test cases. The gate maps exact names to implementation steps.
+- Keep imports and package declarations valid for the configured generated_test_file.
+- Tests must compile or collect even when a requested symbol does not exist yet whenever the language permits deferred lookup.
+- For Python, import modules and access symbols as module attributes instead of importing new symbols directly.
+- For Java, name the generated class PipelineGeneratedTest.
+
+The tests must fail before implementation and pass only when the intent is satisfied.

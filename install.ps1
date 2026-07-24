@@ -84,12 +84,8 @@ if (Get-Command winget -ErrorAction SilentlyContinue) {
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
 }
 
-if (-not (Get-Command pytest -ErrorAction SilentlyContinue) -and (Get-Command python -ErrorAction SilentlyContinue)) {
-    python -m pip install --user pytest
-}
-
 $missing = @()
-foreach ($command in @('git', 'jq', 'curl', 'rg', 'pytest')) {
+foreach ($command in @('git', 'jq', 'curl', 'rg')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { $missing += $command }
 }
 $gitBash = 'C:\Program Files\Git\bin\bash.exe'

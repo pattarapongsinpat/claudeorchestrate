@@ -29,9 +29,9 @@ The shared runtime is `$HOME/.claudeochestrate`.
    - `bash "$HOME/.claudeochestrate/pipeline/plan.sh"`
    - `bash "$HOME/.claudeochestrate/pipeline/tests.sh"`
 
-4. Run `pytest -q` before implementation. The generated behavior tests must be red. If the entire suite is green, write `.pipeline/HALT` explaining that the generated tests do not gate the requested change, then stop.
+4. Run `bash "$HOME/.claudeochestrate/pipeline/run_tests.sh"` before implementation. If `.pipeline/toolchain.json` has `generated_tests: true`, the generated behavior tests must be red. If they are green, write `.pipeline/HALT` explaining that the generated tests do not gate the requested change, then stop. Existing-suite adapters may start green.
 
-5. Read `$HOME/.claudeochestrate/.claude/commands/gate.md` and perform its instructions. Commit the generated tests with `git add -A && git commit -qm "generated tests"`.
+5. Read `$HOME/.claudeochestrate/.claude/commands/gate.md` and perform its instructions. Run `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
 
 6. Run the implementation waves:
 

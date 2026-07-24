@@ -19,30 +19,18 @@ trap 'rm -rf "$WORK"' EXIT
 # tr -d '\r': jq on Windows (and CRLF-checked-out plan files) emits trailing CR,
 # which would make every allowlist and selector comparison silently miss.
 mapfile -t ALLOWED < <(jq -r ".steps[]|select(.id==\"$STEP\")|.files_allowed[]" "$PLAN" | tr -d '\r')
-TESTSEL=$(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // empty" "$PLAN" | tr -d '\r')
+mapfile -t CONTEXT_FILES < <(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
+mapfile -t TEST_NAMES < <(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // [] | if type == \"array\" then .[] else . end" "$PLAN" | tr -d '\r')
 rm -f $WORK/feedback.md
 
-# A selector that matches no test would make every iteration exit 5 and escalate.
-# Fall back to the full suite in that case.
-if [[ -n "$TESTSEL" ]] && ! pytest -k "$TESTSEL" --collect-only -q >/dev/null 2>&1; then
-  echo "WARN: test selector '$TESTSEL' for $STEP matched nothing; using full suite" >&2
-  TESTSEL=""
-fi
-
-run_tests() {                       # scoped to the step when the gate assigned a selector
-  if [[ -n "$TESTSEL" ]]; then
-    pytest -q -k "$TESTSEL" "$@"
-  else
-    pytest -q "$@"
-  fi
-}
+run_tests() { "$PIPELINE_HOME/pipeline/run_tests.sh" "${TEST_NAMES[@]}"; }
 
 # Red-before: a step whose tests already pass at BASE asserts nothing about it,
 # so the loop's exit condition is satisfiable without real work. Non-fatal —
 # a refactor step may legitimately keep tests green — but surfaced for review.
-if [[ -n "$TESTSEL" ]] && run_tests > $WORK/redcheck.out 2>&1; then
+if ((${#TEST_NAMES[@]})) && run_tests > $WORK/redcheck.out 2>&1; then
   { echo "step: $STEP"
-    echo "tests '$TESTSEL' already pass at BASE — step is not gated by its tests"
+    echo "tests '${TEST_NAMES[*]}' already pass at BASE — step is not gated by its tests"
   } > ".pipeline/WARN_${STEP}"
   echo "WARN: $STEP tests green before implementation; loop exit is trivially satisfiable" >&2
 fi
@@ -62,7 +50,7 @@ for i in 1 2 3; do
     "$PIPELINE_HOME/pipeline/ctx.sh" "${ALLOWED[@]}"
     echo
     echo "## Read-only context — do NOT modify these"
-    "$PIPELINE_HOME/pipeline/ctx.sh" $(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
+    "$PIPELINE_HOME/pipeline/ctx.sh" "${CONTEXT_FILES[@]}"
   } > $WORK/step.md
   [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
@@ -92,9 +80,9 @@ for i in 1 2 3; do
   # Allowlist is enforced at write time above; these catch a dependency or test
   # file that IS in the allowlist but must still not be edited here.
   TOUCHED=$( { git diff "$BASE" --name-only; git ls-files --others --exclude-standard; } | sort -u )
-  DEPS=$(git diff "$BASE" -- package.json requirements.txt pyproject.toml Cargo.toml \
-         2>/dev/null | grep '^+[^+]' || true)
-  TESTS=$(printf '%s\n' $TOUCHED | grep -E '(test_|_test\.|\.test\.|/tests?/)' || true)
+  mapfile -t DEPENDENCY_FILES < <(jq -r '.dependency_files[]?' .pipeline/toolchain.json | tr -d '\r')
+  DEPS=$(git diff "$BASE" -- "${DEPENDENCY_FILES[@]}" 2>/dev/null | grep '^+[^+]' || true)
+  TESTS=$(printf '%s\n' "$TOUCHED" | grep -Ei '(^|/)(test|tests)/|src/test/|test_|_test\.|\.test\.|\.spec\.|Tests?\.cs$' || true)
 
   if [[ -n "$DEPS$TESTS" ]]; then
     { echo "SCOPE VIOLATION — reverted. Redo within bounds."

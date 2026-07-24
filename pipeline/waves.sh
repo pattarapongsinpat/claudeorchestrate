@@ -69,6 +69,7 @@ while ((${#REMAINING[@]})); do
     git worktree add -q -b "wt/$s" "$wt" "$BASE"
     mkdir -p "$wt/.pipeline"
     cp "$PLAN" "$wt/.pipeline/plan_final.json"
+    cp .pipeline/toolchain.json "$wt/.pipeline/toolchain.json"
     ( cd "$wt" && "$PIPELINE_HOME/pipeline/code.sh" "$s" > .pipeline/code.log 2>&1 ) &
     PIDS["$s"]=$!
   done
