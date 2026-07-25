@@ -51,6 +51,19 @@ if ((${#TEST_NAMES[@]})) && run_tests > $WORK/redcheck.out 2>&1; then
   echo "WARN: $STEP tests green before implementation; loop exit is trivially satisfiable" >&2
 fi
 
+# Built once: every iteration reverts to BASE first, so the allowlisted files the
+# coder sees are identical each time. ctx.sh --writable exits 3 when one of them
+# matches a credential pattern, which must stop the step rather than leak it.
+if ! "$PIPELINE_HOME/pipeline/ctx.sh" --writable "${ALLOWED[@]}" > $WORK/allowed_ctx.md 2> $WORK/ctx.err; then
+  { echo "step: $STEP"
+    echo "refusing to run: an allowlisted file matches a credential pattern"
+    cat $WORK/ctx.err
+  } > .pipeline/ESCALATE
+  cat $WORK/ctx.err >&2
+  echo "ESCALATE: $STEP — credential in a file this step may rewrite" >&2
+  exit 1
+fi
+
 MODEL=deepseek-v4-flash
 TRUNCATED=0
 for i in 1 2 3; do
@@ -64,7 +77,7 @@ for i in 1 2 3; do
     jq -r ".steps[]|select(.id==\"$STEP\")" "$PLAN"
     echo
     echo "## Files you may modify — current contents"
-    "$PIPELINE_HOME/pipeline/ctx.sh" "${ALLOWED[@]}"
+    cat $WORK/allowed_ctx.md
     echo
     echo "## Read-only context — do NOT modify these"
     "$PIPELINE_HOME/pipeline/ctx.sh" "${CONTEXT_FILES[@]}"

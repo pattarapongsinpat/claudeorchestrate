@@ -68,7 +68,12 @@ toolchains write `.pipeline/HALT` with the reason.
 - Keep tests independent from the generated plan.
 - Treat `.pipeline/intent.json` `allowed_files` as authoritative.
 - Prevent implementation steps from modifying tests or dependency manifests.
-- Redact secret-bearing files from model context.
+- Redact credentials from model context by path AND by content. In a read-only
+  context the matching lines are redacted; for a file the step may rewrite,
+  a match is fatal, because the coder reproduces whole files and would write
+  the placeholder back over the real secret. `PIPELINE_ALLOW_SECRETS=1` overrides.
+- Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
+  infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
 - Preserve partial commits on drift or escalation for inspection.
 

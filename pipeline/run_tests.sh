@@ -5,11 +5,27 @@ CONFIG=.pipeline/toolchain.json
 [[ -f "$CONFIG" ]] || { echo "missing $CONFIG; run pipeline/detect.sh" >&2; exit 1; }
 jq -e '.supported == true' "$CONFIG" >/dev/null || { jq -r '.reason' "$CONFIG" >&2; exit 1; }
 
+# A coder can introduce an infinite loop, and an unbounded test run hangs the
+# whole pipeline — in a parallel wave, silently and with no output. Exit 124 is
+# timeout's, kept distinct from an ordinary test failure.
+TIMEOUT=$(jq -r '.test_timeout_seconds // 600' "$CONFIG" | tr -d '\r')
+TIMEOUT="${PIPELINE_TEST_TIMEOUT:-$TIMEOUT}"
+
+run_cmd() {
+  local rc=0
+  timeout --kill-after=30 "$TIMEOUT" "$@" || rc=$?
+  if ((rc == 124 || rc == 137)); then
+    echo "TIMEOUT: '$*' exceeded ${TIMEOUT}s and was killed" >&2
+    return 124
+  fi
+  return $rc
+}
+
 run_json_command() {
   local json="$1"
   mapfile -t command < <(jq -r '.[]' <<< "$json" | tr -d '\r')
   ((${#command[@]})) || return 0
-  "${command[@]}"
+  run_cmd "${command[@]}"
 }
 
 join_by() {
@@ -48,32 +64,32 @@ case "$mode" in
   pytest)
     expression=$(join_by ' or ' "${tests[@]}")
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    "${command[@]}" -k "$expression"
+    run_cmd "${command[@]}" -k "$expression"
     ;;
   regex)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
     language=$(jq -r '.language' "$CONFIG")
     if [[ "$language" == go ]]; then
-      "${command[@]}" -run "$regex"
+      run_cmd "${command[@]}" -run "$regex"
     else
-      "${command[@]}" -t "$regex"
+      run_cmd "${command[@]}" -t "$regex"
     fi
     ;;
   node)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    "${command[@]}" --test-name-pattern "$regex"
+    run_cmd "${command[@]}" --test-name-pattern "$regex"
     ;;
   repeat)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    for test_name in "${tests[@]}"; do "${command[@]}" "$test_name"; done
+    for test_name in "${tests[@]}"; do run_cmd "${command[@]}" "$test_name"; done
     ;;
   maven)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    for test_name in "${tests[@]}"; do "${command[@]}" "-Dtest=*#$test_name"; done
+    for test_name in "${tests[@]}"; do run_cmd "${command[@]}" "-Dtest=*#$test_name"; done
     ;;
   gradle)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    for test_name in "${tests[@]}"; do "${command[@]}" --tests "*.$test_name"; done
+    for test_name in "${tests[@]}"; do run_cmd "${command[@]}" --tests "*.$test_name"; done
     ;;
   dotnet)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
@@ -84,11 +100,11 @@ case "$mode" in
     filters=()
     for test_name in "${tests[@]}"; do filters+=("FullyQualifiedName~$test_name"); done
     filter=$(join_by '|' "${filters[@]}")
-    "${command[@]}" --filter "$filter"
+    run_cmd "${command[@]}" --filter "$filter"
     ;;
   ctest)
     mapfile -t command < <(jq -r '.[]' <<< "$test_json" | tr -d '\r')
-    "${command[@]}" -R "$regex"
+    run_cmd "${command[@]}" -R "$regex"
     ;;
   *)
     echo "unknown selector mode: $mode" >&2

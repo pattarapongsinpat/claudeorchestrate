@@ -58,8 +58,16 @@ if [[ -f package.json ]]; then
 elif [[ -f pyproject.toml || -f setup.py || -f requirements.txt ]]; then
   # `python -m pytest`, not `pytest`: only the module form puts the repository
   # root on sys.path, and the generated tests live in tests/ and import from it.
+  py_test='["python","-m","pytest","-q"]'
+  # src layout puts packages one level down, where neither form finds them.
+  # pytest's pythonpath option adds it without requiring an editable install,
+  # which would otherwise re-run on every one of the four test invocations
+  # a single step can make.
+  if [[ -d src ]] && rg --files -g 'src/**/*.py' | grep -q .; then
+    py_test='["python","-m","pytest","-q","-o","pythonpath=src"]'
+  fi
   write_config python pytest tests/test_pipeline_generated.py pytest true '[]' \
-    '["python","-m","pytest","-q"]' '\.py$' pyproject.toml setup.py setup.cfg requirements.txt requirements-dev.txt poetry.lock uv.lock
+    "$py_test" '\.py$' pyproject.toml setup.py setup.cfg requirements.txt requirements-dev.txt poetry.lock uv.lock
 elif [[ -f go.mod ]]; then
   go_dir=$(first_source_dir '*.go')
   [[ "$go_dir" == '.' ]] && go_file=pipeline_generated_test.go || go_file="$go_dir/pipeline_generated_test.go"
@@ -123,11 +131,24 @@ fi
 # Optional command that loads the suite without running it. It is what separates a
 # genuine red baseline from a suite that fails to collect — both are "non-zero exit",
 # and only the first one means the tests are actually gating anything.
-case "$(jq -r '.framework' "$OUT")" in
-  pytest) collect='["python","-m","pytest","--collect-only","-q"]' ;;
+framework=$(jq -r '.framework' "$OUT")
+case "$framework" in
+  # Derive from test_command so adapter-specific flags (src layout's pythonpath)
+  # are inherited rather than duplicated and left to drift.
+  pytest) collect=$(jq -c '.test_command + ["--collect-only"]' "$OUT") ;;
   *)      collect='[]' ;;
 esac
+
+# Ceiling on a single test invocation. Compiled toolchains build first, so they
+# get a larger budget. PIPELINE_TEST_TIMEOUT overrides at run time.
+case "$framework" in
+  cargo-test|maven|gradle|dotnet-test|cmake|meson|make) timeout_s=1800 ;;
+  go-test)                                              timeout_s=900 ;;
+  *)                                                    timeout_s=600 ;;
+esac
+
 tmp=$(mktemp)
-jq --argjson c "$collect" '.collect_command = $c' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+jq --argjson c "$collect" --argjson t "$timeout_s" \
+   '.collect_command = $c | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 
 echo "detected: $(jq -r '.language + " / " + .framework' "$OUT")"

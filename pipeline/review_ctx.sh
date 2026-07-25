@@ -6,7 +6,19 @@ OUT=.pipeline/review_ctx.md
 BASE=$(cat .pipeline/step_base 2>/dev/null || cat .pipeline/run_base)
 : > "$OUT"
 
-for f in $(git diff --name-only "$BASE"..HEAD); do
+while IFS=$'\t' read -r status f newpath; do
+  # A deletion has no file to cat, and skipping it hid removals from review
+  # entirely — which is exactly where a bad deletion should surface.
+  case "$status" in
+    D*) { echo "### $f  (deleted)"
+          echo '```'
+          git diff "$BASE"..HEAD -- "$f"
+          echo '```'
+          echo
+        } >> "$OUT"
+        continue ;;
+    R*) [[ -n "$newpath" ]] && f="$newpath" ;;
+  esac
   [[ -f "$f" ]] || continue
   LINES=$(wc -l < "$f")
   {
@@ -21,6 +33,6 @@ for f in $(git diff --name-only "$BASE"..HEAD); do
     echo '```'
     echo
   } >> "$OUT"
-done
+done < <(git diff --name-status "$BASE"..HEAD)
 
 echo "review context: $(wc -l < "$OUT") lines"
