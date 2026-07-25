@@ -56,8 +56,10 @@ toolchains write `.pipeline/HALT` with the reason.
 6. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
 7. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
 8. The native adapter runs the mapped tests after every implementation attempt.
-9. Claude reviews triggered changes and compares the final diff with the original request.
-10. Accepted step commits collapse into one implementation commit.
+9. `pipeline/final_check.sh` runs the whole suite — steps only ran their own
+   mapped tests, so a regression in untargeted tests surfaces only here.
+10. Claude reviews triggered changes and compares the final diff with the original request.
+11. Accepted step commits collapse into one implementation commit.
 
 ## Safety invariants
 

@@ -22,15 +22,19 @@ Run the pipeline for this command's arguments. Halt immediately if `.pipeline/HA
    and cherry-picks each success back, and appends to `.pipeline/touched.log`.
    On any step's ESCALATE it stops with the partial commits in place and writes
    `.pipeline/ESCALATE`; do not continue.
-5. Run `bash "$HOME/.claudeochestrate/pipeline/review_trigger.sh"`. It exits 0 when
+5. Run `bash "$HOME/.claudeochestrate/pipeline/final_check.sh"`. Steps only ran
+   their own mapped tests, so this is the first time the whole suite runs. On
+   failure it writes `.pipeline/REGRESSION`; stop there with the commits in place.
+
+6. Run `bash "$HOME/.claudeochestrate/pipeline/review_trigger.sh"`. It exits 0 when
    review is warranted (a step needed a retry, a step was not gated by its tests, a
    NOOP, or a repeat-touched file) and prints why. On exit 0: run
    `bash "$HOME/.claudeochestrate/pipeline/review_ctx.sh"`, then /review.
    review_ctx.sh must run first — /review reads its output.
-6. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
+7. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
    so run it BEFORE any history collapse.
-7. On ACCEPT: collapse the per-step commits into one —
+8. On ACCEPT: collapse the per-step commits into one —
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`.
    On DRIFT or ESCALATE: leave the per-step commits in place for inspection.
-8. Append one row to `.pipeline/log.csv`, and report token usage from
+9. Append one row to `.pipeline/log.csv`, and report token usage from
    `bash "$HOME/.claudeochestrate/pipeline/usage.sh"`.

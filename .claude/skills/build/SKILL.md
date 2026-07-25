@@ -37,16 +37,18 @@ The shared runtime is `$HOME/.claudeochestrate`.
 
    `bash "$HOME/.claudeochestrate/pipeline/waves.sh"`
 
-7. Run `bash "$HOME/.claudeochestrate/pipeline/review_trigger.sh"`. It exits 0 when review is warranted and prints the reasons. On exit 0, run `bash "$HOME/.claudeochestrate/pipeline/review_ctx.sh"`, then read and perform `$HOME/.claudeochestrate/.claude/commands/review.md`.
+7. Run `bash "$HOME/.claudeochestrate/pipeline/final_check.sh"`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
 
-8. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history.
+8. Run `bash "$HOME/.claudeochestrate/pipeline/review_trigger.sh"`. It exits 0 when review is warranted and prints the reasons. On exit 0, run `bash "$HOME/.claudeochestrate/pipeline/review_ctx.sh"`, then read and perform `$HOME/.claudeochestrate/.claude/commands/review.md`.
 
-9. On `ACCEPT`, collapse pipeline commits:
+9. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history.
+
+10. On `ACCEPT`, collapse pipeline commits:
 
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`
 
    On `DRIFT` or `ESCALATE`, preserve the per-step commits for inspection.
 
-10. Append the run result to `.pipeline/log.csv` and report token usage from `bash "$HOME/.claudeochestrate/pipeline/usage.sh"`.
+11. Append the run result to `.pipeline/log.csv` and report token usage from `bash "$HOME/.claudeochestrate/pipeline/usage.sh"`.
 
 Report the final verdict, changed files, tests, and commit hash. Keep the response concise.
