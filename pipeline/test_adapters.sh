@@ -82,7 +82,7 @@ export TEST_LOG="$WORK/runner/calls.log"
   : > "$TEST_LOG"
   jq -n '{supported:true,setup_commands:[],test_command:["fake-test"],selector_mode:"dotnet",language:"csharp"}' > .pipeline/toolchain.json
   PATH="$PWD/bin:$PATH" "$PIPELINE_HOME/pipeline/run_tests.sh" alpha beta
-  grep -Fxq -- '--filter Name=alpha|Name=beta' "$TEST_LOG"
+  grep -Fxq -- '--filter FullyQualifiedName~alpha|FullyQualifiedName~beta' "$TEST_LOG"
 
   : > "$TEST_LOG"
   jq -n '{supported:true,setup_commands:[],test_command:["fake-test"],selector_mode:"repeat",language:"rust"}' > .pipeline/toolchain.json

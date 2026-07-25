@@ -8,7 +8,7 @@ Checks:
 
 1. Delete steps that do not trace to the intent goal.
 2. Ensure the plan can satisfy the native tests. Record plan or test divergence in `.pipeline/gate_notes.md`.
-3. Narrow every `files_allowed` list to the minimum required paths.
+3. Narrow every `files_allowed` list to the minimum required paths. Keep paths the step must create; never drop one because the file does not exist yet. Add a missing path for a file the step must create, provided it is inside `allowed_files`.
 4. Remove anything that violates a Non-goal.
 5. Split steps that perform more than one observable change.
 6. Add every file defining a consumed type, signature, constant, package, or namespace to `context_files`.

@@ -17,7 +17,11 @@ not to introduce, dependencies not to add. Vague non-goals do nothing —
 "don't over-engineer" is useless, "do not add a caching layer" works.
 
 # Allowed files
-Paths that may be modified. Narrowest set that could satisfy the goal.
+Paths that may be written. Narrowest set that could satisfy the goal.
+Include files that do not exist yet and must be created, at their exact
+intended path — a path absent from this list can never be written, and a coder
+that needs an undeclared file has no way to ask for it. Directories are created
+as needed.
 The identical list MUST appear as `allowed_files` in intent.json, which is
 authoritative — plan and gate read the JSON, not this prose. Keep them equal.
 

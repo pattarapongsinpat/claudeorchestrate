@@ -56,8 +56,10 @@ toolchains write `.pipeline/HALT` with the reason.
 6. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
 7. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
 8. The native adapter runs the mapped tests after every implementation attempt.
-9. Claude reviews triggered changes and compares the final diff with the original request.
-10. Accepted step commits collapse into one implementation commit.
+9. `pipeline/final_check.sh` runs the whole suite — steps only ran their own
+   mapped tests, so a regression in untargeted tests surfaces only here.
+10. Claude reviews triggered changes and compares the final diff with the original request.
+11. Accepted step commits collapse into one implementation commit.
 
 ## Safety invariants
 
@@ -66,7 +68,12 @@ toolchains write `.pipeline/HALT` with the reason.
 - Keep tests independent from the generated plan.
 - Treat `.pipeline/intent.json` `allowed_files` as authoritative.
 - Prevent implementation steps from modifying tests or dependency manifests.
-- Redact secret-bearing files from model context.
+- Redact credentials from model context by path AND by content. In a read-only
+  context the matching lines are redacted; for a file the step may rewrite,
+  a match is fatal, because the coder reproduces whole files and would write
+  the placeholder back over the real secret. `PIPELINE_ALLOW_SECRETS=1` overrides.
+- Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
+  infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
 - Preserve partial commits on drift or escalation for inspection.
 
@@ -89,3 +96,15 @@ toolchains write `.pipeline/HALT` with the reason.
 
 Run `pipeline/test_adapters.sh` to validate toolchain detection and selector
 dispatch without calling the DeepSeek API.
+
+Run `pipeline/smoke_adapters.sh` to drive each adapter's real toolchain against a
+hand-written test file, also without the API. It checks that the runner discovers
+a file at `generated_test_file` and that the selector resolves one named test,
+and it skips adapters whose toolchain is not installed rather than passing them.
+
+Most runners exit 0 when a selector matches no test — verified for `node --test`,
+Vitest, Jest, cargo, and `dotnet test`. A wrong test name in `plan_final.json`
+would otherwise run nothing and report a pass. `code.sh` resolves the mapped names
+through `collect_command` before the coders start and escalates when they match
+nothing; only the pytest adapter defines that command today, so on other adapters
+the gate is responsible for emitting exact names.
