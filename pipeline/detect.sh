@@ -91,9 +91,12 @@ elif [[ -f CMakeLists.txt ]]; then
     language=cpp
     source_regex='\.(c|cc|cpp|cxx|h|hh|hpp)$'
   fi
+  # -C/--config Debug is required by multi-config generators (Visual Studio,
+  # Xcode, Ninja Multi-Config): without it ctest cannot resolve the executable
+  # and every test reports "Not Run". Single-config generators ignore it.
   write_config "$language" cmake '' ctest false \
-    '[["cmake","-S",".","-B",".pipeline/build"],["cmake","--build",".pipeline/build"]]' \
-    '["ctest","--test-dir",".pipeline/build","--output-on-failure"]' "$source_regex" CMakeLists.txt '*.cmake' conanfile.txt conanfile.py vcpkg.json
+    '[["cmake","-S",".","-B",".pipeline/build"],["cmake","--build",".pipeline/build","--config","Debug"]]' \
+    '["ctest","--test-dir",".pipeline/build","--output-on-failure","-C","Debug","--no-tests=error"]' "$source_regex" CMakeLists.txt '*.cmake' conanfile.txt conanfile.py vcpkg.json
 elif [[ -f meson.build ]]; then
   language=c
   source_regex='\.(c|h)$'
