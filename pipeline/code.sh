@@ -36,6 +36,7 @@ if ((${#TEST_NAMES[@]})) && run_tests > $WORK/redcheck.out 2>&1; then
 fi
 
 MODEL=deepseek-v4-flash
+TRUNCATED=0
 for i in 1 2 3; do
   git checkout "$BASE" -- .
   git clean -fdq 2>/dev/null || true   # entry guard guarantees a clean tree, so every untracked file here is this run's
@@ -54,7 +55,21 @@ for i in 1 2 3; do
   } > $WORK/step.md
   [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
-  "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/coder.txt" $WORK/step.md "$MODEL" > $WORK/coder.out
+  ds_rc=0
+  "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/coder.txt" $WORK/step.md "$MODEL" > $WORK/coder.out || ds_rc=$?
+  if ((ds_rc == 4)); then
+    # Truncation is a budget problem, not a comprehension problem. Retrying the
+    # same whole-file request usually truncates again, so name the real cause.
+    TRUNCATED=1
+    { echo "RESPONSE TRUNCATED — it hit the output limit, so nothing was applied."
+      echo "Emit only the files this step must change. If a single file is too large to"
+      echo "reproduce in full, output NOOP so the step can be escalated for splitting."
+    } > $WORK/feedback.md
+    continue
+  elif ((ds_rc)); then
+    echo "ds.sh failed for $STEP (exit $ds_rc)" >&2
+    exit 1
+  fi
 
   grep -qx 'NOOP' $WORK/coder.out && { echo "NOOP $STEP"; exit 0; }
   if [[ ! -s $WORK/coder.out ]] || ! grep -q '^<<<<<<< FILE ' $WORK/coder.out; then
@@ -68,20 +83,37 @@ for i in 1 2 3; do
   fi
 
   # apply_files.sh writes only allowlisted blocks and refuses the rest, so an
-  # out-of-scope file never reaches disk. Non-zero => at least one violation.
-  if ! "$PIPELINE_HOME/pipeline/apply_files.sh" $WORK/coder.out "${ALLOWED[@]}" > $WORK/viol.out 2>&1; then
-    { echo "SCOPE VIOLATION — reverted. Redo within bounds."
-      echo "Files outside allowlist (not written): $(tr '\n' ' ' < $WORK/viol.out)"
-      echo "Allowed only: ${ALLOWED[*]}"
-    } > $WORK/feedback.md
-    continue
-  fi
+  # out-of-scope file never reaches disk. 1 => scope violation, 3 => malformed.
+  rc=0
+  "$PIPELINE_HOME/pipeline/apply_files.sh" $WORK/coder.out "${ALLOWED[@]}" > $WORK/viol.out 2>&1 || rc=$?
+  case $rc in
+    0) ;;
+    1) { echo "SCOPE VIOLATION — reverted. Redo within bounds."
+         echo "Files outside allowlist (not written): $(tr '\n' ' ' < $WORK/viol.out)"
+         echo "Allowed only: ${ALLOWED[*]}"
+       } > $WORK/feedback.md
+       continue ;;
+    3) { echo "MALFORMED OUTPUT — nothing was applied."
+         echo "$(tr '\n' ' ' < $WORK/viol.out)"
+         echo "Every block must close with a line that is exactly: >>>>>>> ENDFILE"
+         echo "Re-emit the complete file blocks."
+       } > $WORK/feedback.md
+       continue ;;
+    *) echo "apply_files.sh failed for $STEP (exit $rc)" >&2
+       cat $WORK/viol.out >&2
+       exit 1 ;;
+  esac
 
   # Allowlist is enforced at write time above; these catch a dependency or test
   # file that IS in the allowlist but must still not be edited here.
   TOUCHED=$( { git diff "$BASE" --name-only; git ls-files --others --exclude-standard; } | sort -u )
   mapfile -t DEPENDENCY_FILES < <(jq -r '.dependency_files[]?' .pipeline/toolchain.json | tr -d '\r')
-  DEPS=$(git diff "$BASE" -- "${DEPENDENCY_FILES[@]}" 2>/dev/null | grep '^+[^+]' || true)
+  # Guard the empty case: `git diff BASE --` with no pathspec diffs the whole
+  # tree, so every added line would read as a dependency violation.
+  DEPS=""
+  if ((${#DEPENDENCY_FILES[@]})); then
+    DEPS=$(git diff "$BASE" -- "${DEPENDENCY_FILES[@]}" 2>/dev/null | grep '^+[^+]' || true)
+  fi
   TESTS=$(printf '%s\n' "$TOUCHED" | grep -Ei '(^|/)(test|tests)/|src/test/|test_|_test\.|\.test\.|\.spec\.|Tests?\.cs$' || true)
 
   if [[ -n "$DEPS$TESTS" ]]; then
@@ -97,17 +129,28 @@ for i in 1 2 3; do
     echo "PASS $STEP (iteration $i)"
     exit 0
   fi
-  { echo "TESTS FAILED — your changes were reverted."
-    echo "The files you will see next are the ORIGINAL ones, not your attempt."
-    echo "Re-output complete file blocks from scratch. Do not assume prior edits exist."
-    tail -40 $WORK/test.out
-  } > $WORK/feedback.md
+  # Blaming the tests when nothing was written sends the model chasing a
+  # failure it did not cause, so the two cases get different feedback.
+  if [[ -z "$TOUCHED" ]]; then
+    { echo "NO FILE CHANGED — your output parsed but wrote nothing, and the tests still fail."
+      echo "Emit a block per file you must change, with its complete contents."
+      echo "Allowed only: ${ALLOWED[*]}"
+      tail -40 $WORK/test.out
+    } > $WORK/feedback.md
+  else
+    { echo "TESTS FAILED — your changes were reverted."
+      echo "The files you will see next are the ORIGINAL ones, not your attempt."
+      echo "Re-output complete file blocks from scratch. Do not assume prior edits exist."
+      tail -40 $WORK/test.out
+    } > $WORK/feedback.md
+  fi
 done
 
 git checkout "$BASE" -- .
 git clean -fdq 2>/dev/null || true
 { echo "step: $STEP"
   echo "exhausted 3 iterations"
+  ((TRUNCATED)) && echo "cause: at least one response was truncated — the step's files are probably too large for the whole-file contract. Split the step or narrow files_allowed."
   echo "--- last feedback ---"
   cat $WORK/feedback.md 2>/dev/null || true
 } > .pipeline/ESCALATE

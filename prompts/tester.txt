@@ -16,6 +16,9 @@ Rules:
 - Keep imports and package declarations valid for the configured generated_test_file.
 - Tests must compile or collect even when a requested symbol does not exist yet whenever the language permits deferred lookup.
 - For Python, import modules and access symbols as module attributes instead of importing new symbols directly.
+- Import a module that does not exist yet inside each test body, never at module scope. One
+  file holds every step's tests, so a top-level import of a not-yet-created module fails
+  collection for the whole file and no step can turn green.
 - For Java, name the generated class PipelineGeneratedTest.
 
 The tests must fail before implementation and pass only when the intent is satisfied.

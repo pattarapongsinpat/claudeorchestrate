@@ -56,8 +56,10 @@ if [[ -f package.json ]]; then
       '["node","--test"]' '\.(js|jsx|mjs|cjs|ts|tsx)$' package.json package-lock.json pnpm-lock.yaml yarn.lock tsconfig.json
   fi
 elif [[ -f pyproject.toml || -f setup.py || -f requirements.txt ]]; then
+  # `python -m pytest`, not `pytest`: only the module form puts the repository
+  # root on sys.path, and the generated tests live in tests/ and import from it.
   write_config python pytest tests/test_pipeline_generated.py pytest true '[]' \
-    '["pytest","-q"]' '\.py$' pyproject.toml setup.py setup.cfg requirements.txt requirements-dev.txt poetry.lock uv.lock
+    '["python","-m","pytest","-q"]' '\.py$' pyproject.toml setup.py setup.cfg requirements.txt requirements-dev.txt poetry.lock uv.lock
 elif [[ -f go.mod ]]; then
   go_dir=$(first_source_dir '*.go')
   [[ "$go_dir" == '.' ]] && go_file=pipeline_generated_test.go || go_file="$go_dir/pipeline_generated_test.go"
@@ -114,5 +116,15 @@ elif [[ -f Makefile || -f makefile ]]; then
 else
   unsupported 'Unsupported project. Add a recognized package or build manifest.'
 fi
+
+# Optional command that loads the suite without running it. It is what separates a
+# genuine red baseline from a suite that fails to collect — both are "non-zero exit",
+# and only the first one means the tests are actually gating anything.
+case "$(jq -r '.framework' "$OUT")" in
+  pytest) collect='["python","-m","pytest","--collect-only","-q"]' ;;
+  *)      collect='[]' ;;
+esac
+tmp=$(mktemp)
+jq --argjson c "$collect" '.collect_command = $c' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 
 echo "detected: $(jq -r '.language + " / " + .framework' "$OUT")"

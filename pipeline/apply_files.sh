@@ -9,23 +9,48 @@
 #   <<<<<<< FILE <path>
 #   <full file contents>
 #   >>>>>>> ENDFILE
+#
+# Exit codes: 0 applied, 1 scope violation, 2 unsafe allowlist, 3 malformed output.
 set -euo pipefail
 OUT="$1"; shift
-# Strip CR so a CRLF allowlist or CRLF coder output still matches path keys.
-declare -A OK=(); for f in "$@"; do OK["${f%$'\r'}"]=1; done
 
-viol=0; path=""; tmp=""
+# Markers are matched after stripping CR and trailing blanks: a CRLF response
+# whose ENDFILE line failed an exact match used to parse as zero blocks, write
+# nothing, and exit 0. Leading "./" is normalized so ./x and x are one path.
+norm() {
+  local p="${1%$'\r'}"
+  p="${p%"${p##*[![:space:]]}"}"
+  printf '%s' "${p#./}"
+}
+
+declare -A OK=()
+for f in "$@"; do
+  p="$(norm "$f")"
+  [[ -z "$p" ]] && continue
+  # The allowlist comes from the gate, but a traversal or absolute path must
+  # never reach the write below.
+  case "$p" in
+    /*|?:[/\\]*|..|../*|*/../*|*/..)
+      echo "refusing unsafe allowlist path: $p" >&2; exit 2 ;;
+  esac
+  OK["$p"]=1
+done
+
+viol=0; malformed=0; path=""; tmp=""
 # Use `if`, not `&&`: a trailing `&& rm` that short-circuits returns 1, and an
 # EXIT trap's non-zero status leaks out as the script's exit code.
 cleanup(){ if [[ -n "$tmp" && -f "$tmp" ]]; then rm -f "$tmp"; fi; }
 trap cleanup EXIT
 
 while IFS= read -r line || [[ -n "$line" ]]; do
-  case "$line" in
+  marker="$(norm "$line")"
+  case "$marker" in
     "<<<<<<< FILE "*)
-      path="${line#<<<<<<< FILE }"
-      path="${path%$'\r'}"
-      path="$(printf '%s' "$path" | sed 's/[[:space:]]*$//')"
+      if [[ -n "$path" ]]; then
+        echo "unterminated block: $path (missing >>>>>>> ENDFILE)" >&2
+        malformed=1; rm -f "$tmp"; tmp=""
+      fi
+      path="$(norm "${marker#<<<<<<< FILE }")"
       tmp="$(mktemp)"; : > "$tmp"
       ;;
     ">>>>>>> ENDFILE")
@@ -44,4 +69,12 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   esac
 done < "$OUT"
 
-exit $viol
+# A block left open at EOF means a truncated response, not an applied file.
+if [[ -n "$path" ]]; then
+  echo "unterminated block: $path (missing >>>>>>> ENDFILE)" >&2
+  malformed=1
+fi
+
+((viol)) && exit 1
+((malformed)) && exit 3
+exit 0

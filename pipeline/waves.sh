@@ -76,9 +76,20 @@ while ((${#REMAINING[@]})); do
 
   # collect results; commit successes inside their worktrees
   batch_ok=1
+  declare -A FAILED=()
   for s in "${batch[@]}"; do
     wt="$WORKROOT/$s"
-    if wait "${PIDS[$s]}"; then
+    step_ok=0
+    if wait "${PIDS[$s]}"; then step_ok=1; fi
+
+    # Copy per-step artifacts out before cleanup_wt deletes the worktree —
+    # a WARN raised inside a worktree is otherwise lost, unlike sequential runs.
+    cp "$wt"/.pipeline/WARN_* .pipeline/ 2>/dev/null || true
+    mkdir -p .pipeline/logs .pipeline/raw
+    cp "$wt/.pipeline/code.log" ".pipeline/logs/$s.log" 2>/dev/null || true
+    cp "$wt"/.pipeline/raw/* .pipeline/raw/ 2>/dev/null || true
+
+    if ((step_ok)); then
       if [[ -n "$(git -C "$wt" status --porcelain)" ]]; then
         git -C "$wt" add -A
         git -C "$wt" commit -qm "step $s"
@@ -86,14 +97,19 @@ while ((${#REMAINING[@]})); do
     else
       echo "ESCALATE: step $s" >&2
       sed 's/^/    /' "$wt/.pipeline/code.log" >&2 || true
-      cp "$wt/.pipeline/ESCALATE" .pipeline/ESCALATE 2>/dev/null || echo "step: $s" > .pipeline/ESCALATE
-      escalated="$s"; batch_ok=0
+      # Append, never overwrite: a second failure in the same wave used to
+      # erase the first one's marker.
+      { echo "=== $s ==="
+        cat "$wt/.pipeline/ESCALATE" 2>/dev/null ||
+          echo "step: $s (no ESCALATE marker; see .pipeline/logs/$s.log)"
+      } >> .pipeline/ESCALATE
+      FAILED["$s"]=1; escalated="$s"; batch_ok=0
     fi
   done
 
   # merge successful steps back (disjoint files => clean cherry-pick)
   for s in "${batch[@]}"; do
-    [[ "$s" == "$escalated" ]] && continue
+    [[ -n "${FAILED[$s]:-}" ]] && continue
     wt="$WORKROOT/$s"; tip=$(git -C "$wt" rev-parse HEAD)
     if [[ "$tip" != "$BASE" ]]; then
       git cherry-pick "$tip" >/dev/null 2>&1 || { git cherry-pick --abort 2>/dev/null || true; echo "MERGE CONFLICT on $s — steps not disjoint" >&2; exit 1; }
@@ -105,7 +121,7 @@ while ((${#REMAINING[@]})); do
   # shrink REMAINING
   newrem=()
   for s in "${REMAINING[@]}"; do
-    [[ -n "${DONE[$s]:-}" || "$s" == "$escalated" ]] && continue
+    [[ -n "${DONE[$s]:-}" || -n "${FAILED[$s]:-}" ]] && continue
     newrem+=("$s")
   done
   REMAINING=("${newrem[@]}")

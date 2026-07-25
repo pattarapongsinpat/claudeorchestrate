@@ -9,7 +9,9 @@ Produce an implementation plan as JSON. Output JSON only, no prose, no fences.
   "done_when":"externally checkable condition"
 }]}
 
-files_allowed  — the step MAY modify these. Minimum set.
+files_allowed  — the step MAY write these. Minimum set. Include files that do
+                 not exist yet and must be created; a path absent here cannot
+                 be written, so a new module must be listed at its exact path.
 context_files  — the step must READ these to be implemented correctly, and
                  must NOT modify them. Include anything defining a type,
                  signature, or constant the step depends on.
