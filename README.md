@@ -73,6 +73,15 @@ Test Maven without installing Java system-wide with:
 powershell -ExecutionPolicy Bypass -File .\pipeline\test_java.ps1
 ```
 
+Run real DeepSeek implementation loops for compiled languages:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pipeline\test_java.ps1 -E2E
+powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 test_e2e_compiled csharp
+powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 test_e2e_compiled c
+powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 test_e2e_compiled cpp
+```
+
 Test the Make adapter without installation or UAC with:
 
 ```powershell

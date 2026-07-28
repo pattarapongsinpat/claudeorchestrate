@@ -18,3 +18,9 @@ subagent must return exactly one of:
 Write its response verbatim to `.pipeline/verify.md`. Do not revise or override
 the isolated verdict. DRIFT reports an upstream misreading and must not patch
 the implementation.
+
+Run pipeline script `validate_verify`. Its exit codes are authoritative:
+
+- `0`: ACCEPT. History may be collapsed.
+- `2`: DRIFT. Preserve step commits and stop.
+- `1`: malformed or missing verdict. Stop without collapsing history.

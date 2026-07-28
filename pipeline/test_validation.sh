@@ -31,8 +31,8 @@ run_case javascript "test('alpha', () => {});"
 run_case typescript 'it("alpha", () => {});'
 run_case go 'func alpha(t *testing.T) {'
 run_case rust 'fn alpha() {'
-run_case java 'void alpha() {'
-run_case csharp 'public void alpha() {'
+run_case java '@Test void alpha() {'
+run_case csharp '[Fact] public void alpha() {'
 
 (
   cd "$WORK/javascript"

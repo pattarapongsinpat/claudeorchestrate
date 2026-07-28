@@ -86,7 +86,8 @@ for i in 1 2 3; do
   [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
   ds_rc=0
-  "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/coder.txt" $WORK/step.md "$MODEL" > $WORK/coder.out || ds_rc=$?
+  DS_RUNNER="${PIPELINE_DS_COMMAND:-$PIPELINE_HOME/pipeline/ds.sh}"
+  "$DS_RUNNER" "$PIPELINE_HOME/prompts/coder.txt" $WORK/step.md "$MODEL" > $WORK/coder.out || ds_rc=$?
   if ((ds_rc == 4)); then
     # Truncation is a budget problem, not a comprehension problem. Retrying the
     # same whole-file request usually truncates again, so name the real cause.

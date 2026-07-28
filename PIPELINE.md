@@ -71,8 +71,9 @@ toolchains write `.pipeline/HALT` with the reason.
 - Prevent implementation steps from modifying tests or dependency manifests.
 - Redact credentials from model context by path AND by content. In a read-only
   context the matching lines are redacted; for a file the step may rewrite,
-  a match is fatal, because the coder reproduces whole files and would write
-  the placeholder back over the real secret. `PIPELINE_ALLOW_SECRETS=1` overrides.
+  a match is fatal. Binary and secret-bearing writable paths are also fatal.
+  Add exact repository-relative paths to `.pipeline-model-exclude` to withhold
+  complete files from every model. Excluded files cannot be writable steps.
 - Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
   infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
@@ -88,7 +89,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | `.pipeline/plan.md` | DeepSeek plan |
 | `.pipeline/tests_spec.md` | Generated native tests or existing-suite context |
 | `.pipeline/plan_final.json` | Claude-gated steps, dependencies, and exact test names |
-| `.pipeline/verify.md` | Final ACCEPT or DRIFT verdict |
+| `.pipeline/verify.md` | Final ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
 
 ## Commands
 
@@ -107,6 +108,14 @@ through `code.sh`.
 
 `pipeline/test_e2e_waves.sh` runs two file-disjoint DeepSeek implementation steps
 in parallel worktrees, cherry-picks both commits, and runs the complete suite.
+
+`pipeline/test_retry_escalation.sh` deterministically exercises a successful
+second attempt, review triggering, scope rejection, and three-attempt escalation.
+`pipeline/test_verify.sh` checks ACCEPT, DRIFT, and malformed verifier outputs.
+
+`pipeline/test_e2e_compiled.sh <java|csharp|c|cpp>` runs a real DeepSeek coding
+loop against that compiled language. On Windows, use `test_java.ps1 -E2E` for a
+temporary checksum-verified Java toolchain.
 
 `pipeline/validate_test_names.sh` checks generated test mappings against their
 native source before waves. Existing-suite C and C++ steps use empty mappings
@@ -128,8 +137,6 @@ toolchain afterward.
 Meson, and GNU Make toolchains so every advertised adapter is exercised.
 
 Most runners exit 0 when a selector matches no test — verified for `node --test`,
-Vitest, Jest, cargo, and `dotnet test`. A wrong test name in `plan_final.json`
-would otherwise run nothing and report a pass. `code.sh` resolves the mapped names
-through `collect_command` before the coders start and escalates when they match
-nothing; only the pytest adapter defines that command today, so on other adapters
-the gate is responsible for emitting exact names.
+Vitest, Jest, Go, Cargo, Maven, and `dotnet test`. Before any coder call,
+`validate_test_names.sh` checks generated mappings against native test source.
+Existing-suite adapters use empty mappings and run the complete suite.

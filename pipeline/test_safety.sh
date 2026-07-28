@@ -71,4 +71,33 @@ EOF
   [[ ! -e outside/escaped.txt ]]
 fi
 
+printf '%s\n' 'api_key="sk-test_123456789012345678901234567890"' > sensitive.txt
+readonly_ctx=$("$PIPELINE_HOME/pipeline/ctx.sh" sensitive.txt)
+[[ "$readonly_ctx" == *'line redacted'* ]]
+[[ "$readonly_ctx" != *'123456789012345678901234567890'* ]]
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable sensitive.txt >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+
+printf '%s\n' 'not actually inspected' > .env
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable .env >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+
+printf '%s\n' 'excluded.txt' > .pipeline-model-exclude
+printf '%s\n' 'ordinary source' > excluded.txt
+excluded_ctx=$("$PIPELINE_HOME/pipeline/ctx.sh" excluded.txt)
+[[ "$excluded_ctx" == *'excluded by .pipeline-model-exclude'* ]]
+[[ "$excluded_ctx" != *'ordinary source'* ]]
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable excluded.txt >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+
+: > empty.txt
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable empty.txt >/dev/null
+printf 'text\0binary\n' > binary.dat
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable binary.dat >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+
 echo "pipeline safety tests passed"

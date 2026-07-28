@@ -1,6 +1,7 @@
 param(
     [string]$JdkVersion = '21.0.12',
-    [string]$MavenVersion = '3.9.16'
+    [string]$MavenVersion = '3.9.16',
+    [switch]$E2E
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +52,12 @@ try {
     & $maven.FullName --version
 
     $invoke = Join-Path $PSScriptRoot 'invoke.ps1'
-    & (Join-Path $PSHOME 'powershell.exe') -ExecutionPolicy Bypass -File $invoke smoke_adapters
+    if ($E2E) {
+        & (Join-Path $PSHOME 'powershell.exe') -ExecutionPolicy Bypass -File $invoke test_e2e_compiled java
+    }
+    else {
+        & (Join-Path $PSHOME 'powershell.exe') -ExecutionPolicy Bypass -File $invoke smoke_adapters
+    }
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

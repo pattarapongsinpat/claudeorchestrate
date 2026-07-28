@@ -48,7 +48,7 @@ On macOS and Linux, use `bash "$HOME/.claudeochestrate/pipeline/<script-name>.sh
 
 8. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeochestrate/.claude/commands/review.md`.
 
-9. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there.
+9. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
 
 10. On `ACCEPT`, collapse pipeline commits:
 

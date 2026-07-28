@@ -48,10 +48,10 @@ for name in "${TESTS[@]}"; do
       pattern="^[[:space:]]*(pub([[:space:]]*\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+$name[[:space:]]*\\("
       ;;
     java)
-      pattern="^[[:space:]]*((public|protected|private)[[:space:]]+)?(static[[:space:]]+)?void[[:space:]]+$name[[:space:]]*\\("
+      pattern="^[[:space:]]*(@[A-Za-z0-9_$.]+(\\([^)]*\\))?[[:space:]]+)*((public|protected|private)[[:space:]]+)?(static[[:space:]]+)?void[[:space:]]+$name[[:space:]]*\\("
       ;;
     csharp)
-      pattern="^[[:space:]]*((public|protected|private|internal)[[:space:]]+)?(static[[:space:]]+)?(async[[:space:]]+)?(void|Task|ValueTask)[[:space:]]+$name[[:space:]]*\\("
+      pattern="^[[:space:]]*(\\[[^]]+\\][[:space:]]*)*((public|protected|private|internal)[[:space:]]+)?(static[[:space:]]+)?(async[[:space:]]+)?(void|Task|ValueTask)[[:space:]]+$name[[:space:]]*\\("
       ;;
     *)
       echo "cannot validate mapped tests for language: $language" >&2

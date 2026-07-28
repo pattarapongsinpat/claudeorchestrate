@@ -34,7 +34,8 @@ Linux, use `bash "$HOME/.claudeochestrate/pipeline/<script-name>.sh"`.
    `review_ctx`, then /review.
    review_ctx.sh must run first — /review reads its output.
 7. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
-   so run it BEFORE any history collapse.
+   so run it BEFORE any history collapse. Then run pipeline script
+   `validate_verify`; collapse only when it exits 0.
 8. On ACCEPT: collapse the per-step commits into one —
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`.
    On DRIFT or ESCALATE: leave the per-step commits in place for inspection.
