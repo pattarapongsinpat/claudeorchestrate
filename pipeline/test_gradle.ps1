@@ -1,6 +1,6 @@
 param([string]$JdkVersion = '21.0.12')
 $ErrorActionPreference = 'Stop'
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeochestrate-gradle-' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeorchestrate-gradle-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 $errorLog = Join-Path (Split-Path $PSScriptRoot -Parent) '.pipeline\test_gradle_error.log'
 New-Item -ItemType Directory -Path (Split-Path $errorLog -Parent) -Force | Out-Null

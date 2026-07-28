@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeochestrate-all-' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeorchestrate-all-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 
 function Assert-Hash([string]$Archive, [string]$Expected, [string]$Algorithm) {

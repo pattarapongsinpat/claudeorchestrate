@@ -10,6 +10,14 @@ The personal `build` skill applies this workflow to implementation, bug fix,
 refactor, and test-change requests in Git repositories. Explanation, inspection,
 and planning-only requests do not trigger it.
 
+For normal requests, the skill first applies a conservative fast-path gate.
+Clear changes limited to one implementation file and under 20 changed lines may
+be handled directly by Claude when they avoid dependencies, public contracts,
+state, security, concurrency, networking, build logic, and other high-risk areas.
+The direct path uses no DeepSeek or subagent and still requires focused
+verification. Any uncertainty routes to the full pipeline. Explicit `/build`
+always forces the full pipeline.
+
 The pipeline requires a clean worktree. It stops instead of committing or
 overwriting pre-existing changes.
 
@@ -23,7 +31,7 @@ overwriting pre-existing changes.
 | Go | `go.mod` | `go test` | Generated tests |
 | Rust | `Cargo.toml` | `cargo test` | Generated tests |
 | Java | Maven or Gradle manifests | Maven or Gradle test | Generated tests |
-| C# | solution or project files | `dotnet test` | Generated tests in an existing test project |
+| C# | solution or project files | `dotnet test` or `dotnet build` | Generated tests when a test project exists; compile-only otherwise |
 | C | CMake, Meson, or Make | CTest, Meson test, or `make test` | Existing suite |
 | C++ | CMake, Meson, or Make | CTest, Meson test, or `make test` | Existing suite |
 
@@ -31,8 +39,9 @@ overwriting pre-existing changes.
 that artifact instead of hardcoded language commands.
 
 C and C++ use the existing native suite because build and test registration
-vary by project. C# requires an existing test project. Unsupported or ambiguous
-toolchains write `.pipeline/HALT` with the reason.
+vary by project. C# falls back to an unambiguous project or solution build when
+no test project exists. Unsupported or ambiguous toolchains write `.pipeline/HALT`
+with the reason.
 
 ## Model roles
 

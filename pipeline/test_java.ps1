@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeochestrate-java-' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeorchestrate-java-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 
 function Assert-Checksum([string]$Archive, [string]$ChecksumFile, [string]$Algorithm) {

@@ -86,12 +86,38 @@ elif [[ -f build.gradle || -f build.gradle.kts || -f settings.gradle || -f setti
   [[ -f gradlew ]] && gradle=(./gradlew)
   write_config java gradle src/test/java/PipelineGeneratedTest.java gradle true '[]' \
     "$(printf '%s\n' "${gradle[@]}" test | jq -R . | jq -s .)" '\.java$' build.gradle build.gradle.kts settings.gradle settings.gradle.kts gradle.properties
-elif compgen -G '*.sln' >/dev/null || compgen -G '*.csproj' >/dev/null || rg --files -g '*.csproj' | grep -q .; then
-  test_project=$(rg --files -g '*[Tt]est*.csproj' | head -1 || true)
-  [[ -n "$test_project" ]] || unsupported 'C# projects require an existing test .csproj for generated tests'
-  test_dir=$(dirname "$test_project")
-  write_config csharp dotnet-test "$test_dir/PipelineGeneratedTests.cs" dotnet true '[]' \
-    "$(printf '%s\n' dotnet test "$test_project" | jq -R . | jq -s .)" '\.cs$' '*.sln' '*.csproj' Directory.Build.props Directory.Build.targets packages.lock.json
+elif compgen -G '*.sln' >/dev/null || compgen -G '*.slnx' >/dev/null || compgen -G '*.csproj' >/dev/null || rg --files -g '*.csproj' | grep -q .; then
+  # Prefer project metadata because a valid test project need not contain "Test"
+  # in its filename. Keep the filename fallback for conventional projects whose
+  # minimal project file relies on SDK defaults.
+  test_project=""
+  while IFS= read -r project; do
+    project="${project//\\//}"
+    if rg -qi '<IsTestProject>[[:space:]]*true|Microsoft\.NET\.Test\.Sdk' "$project"; then
+      test_project="$project"
+      break
+    fi
+  done < <(rg --files -g '*.csproj')
+  [[ -n "$test_project" ]] || test_project=$(rg --files -g '*Test.csproj' -g '*Tests.csproj' | head -1 || true)
+  test_project="${test_project//\\//}"
+
+  if [[ -n "$test_project" ]]; then
+    test_dir=$(dirname "$test_project")
+    write_config csharp dotnet-test "$test_dir/PipelineGeneratedTests.cs" dotnet true '[]' \
+      "$(printf '%s\n' dotnet test "$test_project" | jq -R . | jq -s .)" '\.cs$' '*.sln' '*.slnx' '*.csproj' Directory.Build.props Directory.Build.targets packages.lock.json
+  else
+    # A small C# change can still be verified safely by compilation. Prefer a
+    # solution, then require one unambiguous non-test project outside test dirs.
+    build_target=$(compgen -G '*.sln' | head -1 || true)
+    [[ -n "$build_target" ]] || build_target=$(compgen -G '*.slnx' | head -1 || true)
+    if [[ -z "$build_target" ]]; then
+      mapfile -t build_projects < <(rg --files -g '*.csproj' | tr '\\' '/' | grep -Eiv '(^|/)(test|tests|spec|specs)/' || true)
+      ((${#build_projects[@]} == 1)) || unsupported 'C# project has no test project and no unambiguous build target'
+      build_target="${build_projects[0]}"
+    fi
+    write_config csharp dotnet-build '' none false '[]' \
+      "$(printf '%s\n' dotnet build "$build_target" | jq -R . | jq -s .)" '\.cs$' '*.sln' '*.slnx' '*.csproj' Directory.Build.props Directory.Build.targets packages.lock.json
+  fi
 elif [[ -f CMakeLists.txt ]]; then
   language=c
   source_regex='\.(c|h)$'
@@ -152,6 +178,7 @@ case "$framework" in
   maven)       load=$(jq -c '.test_command + ["-DskipTests"]' "$OUT") ;;
   gradle)      load=$(jq -c '.test_command[0:-1] + ["testClasses"]' "$OUT") ;;
   dotnet-test) load=$(jq -c '.test_command + ["--list-tests"]' "$OUT") ;;
+  dotnet-build) load=$(jq -c '.test_command' "$OUT") ;;
   cmake)       load=$(jq -c '.test_command + ["-N"]' "$OUT") ;;
   meson)       load=$(jq -c '.test_command + ["--list"]' "$OUT") ;;
   *)           load='[]' ;;
@@ -160,7 +187,7 @@ esac
 # Ceiling on a single test invocation. Compiled toolchains build first, so they
 # get a larger budget. PIPELINE_TEST_TIMEOUT overrides at run time.
 case "$framework" in
-  cargo-test|maven|gradle|dotnet-test|cmake|meson|make) timeout_s=1800 ;;
+  cargo-test|maven|gradle|dotnet-test|dotnet-build|cmake|meson|make) timeout_s=1800 ;;
   go-test)                                              timeout_s=900 ;;
   *)                                                    timeout_s=600 ;;
 esac

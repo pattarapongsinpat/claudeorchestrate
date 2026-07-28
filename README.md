@@ -24,34 +24,36 @@ Install the native toolchain used by your projects:
 ## Windows installation
 
 ```powershell
-git clone https://github.com/pattarapongsinpat/claudeochestrate.git "$HOME\.claudeochestrate"
-Set-Location "$HOME\.claudeochestrate"
+git clone https://github.com/pattarapongsinpat/claudeorchestrate.git "$HOME\.claudeorchestrate"
+Set-Location "$HOME\.claudeorchestrate"
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ## macOS or Linux installation
 
 ```bash
-git clone https://github.com/pattarapongsinpat/claudeochestrate.git ~/.claudeochestrate
-cd ~/.claudeochestrate
+git clone https://github.com/pattarapongsinpat/claudeorchestrate.git ~/.claudeorchestrate
+cd ~/.claudeorchestrate
 bash install.sh
 ```
 
-Set the key in `~/.claudeochestrate/.env`:
+Set the key in `~/.claudeorchestrate/.env`:
 
 ```text
 DEEPSEEK_API_KEY=your-key
 ```
 
-Restart Claude Code. Ask for a code change normally. Claude can invoke the build skill automatically. Use `/build <request>` to invoke it explicitly.
+Restart Claude Code. Ask for a code change normally. Claude handles clearly
+localized, low-risk edits directly and routes larger or riskier work through the
+build pipeline. Use `/build <request>` to force the full pipeline.
 
 On Windows, the integration launches Git Bash explicitly through
 `pipeline/invoke.ps1`. It does not depend on the `bash` command in `PATH`, which
 may otherwise launch WSL.
 
 Supported languages are Python, JavaScript, TypeScript, Go, Rust, Java, C#,
-C, and C++. C and C++ use the project's existing native test suite. C# needs
-an existing test project.
+C, and C++. C and C++ use the project's existing native test suite. C# uses
+generated tests when a test project exists and compile-only verification otherwise.
 
 ## Pipeline tests
 
@@ -64,7 +66,7 @@ powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 smoke_adapters
 Run against a project without changing the caller's working directory:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" run -Repo "C:\path\to\project"
+powershell -ExecutionPolicy Bypass -File "$HOME\.claudeorchestrate\pipeline\invoke.ps1" run -Repo "C:\path\to\project"
 ```
 
 Test Maven without installing Java system-wide with:
@@ -100,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File .\pipeline\test_all_toolchains.ps1
 ## Update
 
 ```bash
-cd ~/.claudeochestrate
+cd ~/.claudeorchestrate
 git pull
 ```
 

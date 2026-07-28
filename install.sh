@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUNTIME="$HOME/.claudeochestrate"
+RUNTIME="$HOME/.claudeorchestrate"
+LEGACY_RUNTIME="$HOME/.claudeochestrate"
 CLAUDE_HOME="$HOME/.claude"
 
 link_dir() {
@@ -17,13 +18,22 @@ link_dir() {
   ln -s "$source" "$destination"
 }
 
-if [[ "$(cd "$ROOT" && pwd -P)" != "$(cd "$HOME" && pwd -P)/.claudeochestrate" ]]; then
+remove_legacy_link() {
+  local destination="$1" legacy_target="$2"
+  if [[ -L "$destination" && "$(readlink "$destination")" == "$legacy_target" ]]; then
+    rm "$destination"
+  fi
+}
+
+if [[ "$(cd "$ROOT" && pwd -P)" != "$(cd "$HOME" && pwd -P)/.claudeorchestrate" ]]; then
   link_dir "$ROOT" "$RUNTIME"
 fi
 
 mkdir -p "$CLAUDE_HOME/skills"
+remove_legacy_link "$CLAUDE_HOME/skills/build" "$LEGACY_RUNTIME/.claude/skills/build"
 link_dir "$RUNTIME/.claude/skills/build" "$CLAUDE_HOME/skills/build"
 
+remove_legacy_link "$CLAUDE_HOME/commands" "$LEGACY_RUNTIME/.claude/commands"
 if [[ ! -e "$CLAUDE_HOME/commands" ]]; then
   ln -s "$RUNTIME/.claude/commands" "$CLAUDE_HOME/commands"
 else
@@ -42,8 +52,15 @@ else
 fi
 
 MEMORY="$CLAUDE_HOME/CLAUDE.md"
-MARKER='<!-- claudeochestrate:global -->'
+MARKER='<!-- claudeorchestrate:global -->'
 touch "$MEMORY"
+if grep -Fq "$LEGACY_RUNTIME" "$MEMORY" || grep -Fq '<!-- claudeochestrate:global -->' "$MEMORY"; then
+  MIGRATED_MEMORY=$(mktemp)
+  sed -e "s|$LEGACY_RUNTIME|$RUNTIME|g" \
+      -e 's|<!-- claudeochestrate:global -->|<!-- claudeorchestrate:global -->|g' \
+      "$MEMORY" > "$MIGRATED_MEMORY"
+  mv "$MIGRATED_MEMORY" "$MEMORY"
+fi
 if ! grep -Fq "$MARKER" "$MEMORY"; then
   cat >> "$MEMORY" <<EOF
 

@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeochestrate-go-' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeorchestrate-go-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $releases = Invoke-RestMethod -Uri 'https://go.dev/dl/?mode=json'

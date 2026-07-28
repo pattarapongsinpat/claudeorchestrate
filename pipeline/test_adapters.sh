@@ -41,6 +41,23 @@ mkdir -p "$WORK/csharp/Demo.Tests"
 printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "$WORK/csharp/Demo.Tests/Demo.Tests.csproj"
 check_case csharp csharp dotnet-test
 
+mkdir -p "$WORK/csharp-build/src"
+printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "$WORK/csharp-build/src/Demo.csproj"
+check_case csharp-build csharp dotnet-build
+(
+  cd "$WORK/csharp-build"
+  jq -e '.generated_tests == false and .selector_mode == "none" and .generated_test_file == "" and .test_command == ["dotnet","build","src/Demo.csproj"]' .pipeline/toolchain.json >/dev/null
+)
+
+mkdir -p "$WORK/csharp-metadata/specs"
+cat > "$WORK/csharp-metadata/specs/Verification.csproj" <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>
+  <ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" /></ItemGroup>
+</Project>
+EOF
+check_case csharp-metadata csharp dotnet-test
+
 mkdir -p "$WORK/c"
 printf 'cmake_minimum_required(VERSION 3.20)\n' > "$WORK/c/CMakeLists.txt"
 printf 'int demo(void);\n' > "$WORK/c/demo.c"

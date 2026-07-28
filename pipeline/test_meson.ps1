@@ -1,6 +1,6 @@
 param([string]$MesonVersion = '1.9.1')
 $ErrorActionPreference = 'Stop'
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeochestrate-meson-' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('claudeorchestrate-meson-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     $venv = Join-Path $testRoot 'python'
