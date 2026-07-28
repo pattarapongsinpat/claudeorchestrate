@@ -45,9 +45,42 @@ DEEPSEEK_API_KEY=your-key
 
 Restart Claude Code. Ask for a code change normally. Claude can invoke the build skill automatically. Use `/build <request>` to invoke it explicitly.
 
+On Windows, the integration launches Git Bash explicitly through
+`pipeline/invoke.ps1`. It does not depend on the `bash` command in `PATH`, which
+may otherwise launch WSL.
+
 Supported languages are Python, JavaScript, TypeScript, Go, Rust, Java, C#,
 C, and C++. C and C++ use the project's existing native test suite. C# needs
 an existing test project.
+
+## Pipeline tests
+
+On Windows, run the installed-toolchain smoke suite with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 smoke_adapters
+```
+
+Test Maven without installing Java system-wide with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pipeline\test_java.ps1
+```
+
+Test the Make adapter without installation or UAC with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pipeline\test_make.ps1
+```
+
+The Java runner verifies downloaded JDK and Maven checksums and removes its
+temporary toolchain after the suite finishes.
+
+Run every supported Windows adapter with temporary checksum-verified toolchains:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pipeline\test_all_toolchains.ps1
+```
 
 ## Update
 

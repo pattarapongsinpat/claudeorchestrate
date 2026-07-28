@@ -3,6 +3,10 @@ set -euo pipefail
 PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STEP="$1"
 PLAN=.pipeline/plan_final.json
+bash "$PIPELINE_HOME/pipeline/validate_plan.sh" "$PLAN" >/dev/null
+jq -e --arg id "$STEP" '[.steps[].id] | index($id) != null' "$PLAN" >/dev/null || {
+  echo "unknown step: $STEP" >&2; exit 1;
+}
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "ABORT: tree dirty at entry to $STEP." >&2
@@ -18,9 +22,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 # tr -d '\r': jq on Windows (and CRLF-checked-out plan files) emits trailing CR,
 # which would make every allowlist and selector comparison silently miss.
-mapfile -t ALLOWED < <(jq -r ".steps[]|select(.id==\"$STEP\")|.files_allowed[]" "$PLAN" | tr -d '\r')
-mapfile -t CONTEXT_FILES < <(jq -r ".steps[]|select(.id==\"$STEP\")|.context_files[]?" "$PLAN" | tr -d '\r')
-mapfile -t TEST_NAMES < <(jq -r ".steps[]|select(.id==\"$STEP\")|.tests // [] | if type == \"array\" then .[] else . end" "$PLAN" | tr -d '\r')
+mapfile -t ALLOWED < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.files_allowed[]' "$PLAN" | tr -d '\r')
+mapfile -t CONTEXT_FILES < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.context_files[]?' "$PLAN" | tr -d '\r')
+mapfile -t TEST_NAMES < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.tests // [] | if type == "array" then .[] else . end' "$PLAN" | tr -d '\r')
 rm -f $WORK/feedback.md
 
 run_tests() { "$PIPELINE_HOME/pipeline/run_tests.sh" "${TEST_NAMES[@]}"; }
@@ -74,7 +78,7 @@ for i in 1 2 3; do
 
   {
     echo "## Step"
-    jq -r ".steps[]|select(.id==\"$STEP\")" "$PLAN"
+    jq -r --arg id "$STEP" '.steps[]|select(.id==$id)' "$PLAN"
     echo
     echo "## Files you may modify — current contents"
     cat $WORK/allowed_ctx.md

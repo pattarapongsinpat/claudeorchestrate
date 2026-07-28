@@ -97,10 +97,27 @@ toolchains write `.pipeline/HALT` with the reason.
 Run `pipeline/test_adapters.sh` to validate toolchain detection and selector
 dispatch without calling the DeepSeek API.
 
+Run `pipeline/test_safety.sh` to validate plan identifiers, dependency
+references, traversal rejection, and symlink write protection.
+
+With a configured API key, `pipeline/test_api.sh` verifies the DeepSeek API
+wrapper and `pipeline/test_e2e_node.sh` runs a real red-to-green Node coding loop
+through `code.sh`.
+
+`pipeline/test_e2e_waves.sh` runs two file-disjoint DeepSeek implementation steps
+in parallel worktrees, cherry-picks both commits, and runs the complete suite.
+
 Run `pipeline/smoke_adapters.sh` to drive each adapter's real toolchain against a
 hand-written test file, also without the API. It checks that the runner discovers
 a file at `generated_test_file` and that the selector resolves one named test,
 and it skips adapters whose toolchain is not installed rather than passing them.
+
+On Windows, `pipeline/test_java.ps1` downloads checksum-verified portable JDK and
+Maven archives, runs the smoke suite with them, and removes the temporary
+toolchain afterward.
+
+`pipeline/test_all_toolchains.ps1` extends that audit with temporary Go, Gradle,
+Meson, and GNU Make toolchains so every advertised adapter is exercised.
 
 Most runners exit 0 when a selector matches no test — verified for `node --test`,
 Vitest, Jest, cargo, and `dotnet test`. A wrong test name in `plan_final.json`

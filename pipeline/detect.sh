@@ -139,6 +139,24 @@ case "$framework" in
   *)      collect='[]' ;;
 esac
 
+# Loads and builds the existing suite without executing its tests. The baseline
+# check temporarily removes the generated test file before invoking this command,
+# so expected references to not-yet-created APIs do not look like repository
+# compilation failures.
+case "$framework" in
+  pytest)      load="$collect" ;;
+  node-test)   load=$(jq -c '.test_command + ["--test-name-pattern", "a^"]' "$OUT") ;;
+  vitest|jest) load=$(jq -c '.test_command + ["-t", "a^", "--passWithNoTests"]' "$OUT") ;;
+  go-test)     load='["go","test","-run","a^","./..."]' ;;
+  cargo-test)  load=$(jq -c '.test_command + ["--no-run"]' "$OUT") ;;
+  maven)       load=$(jq -c '.test_command + ["-DskipTests"]' "$OUT") ;;
+  gradle)      load=$(jq -c '.test_command[0:-1] + ["testClasses"]' "$OUT") ;;
+  dotnet-test) load=$(jq -c '.test_command + ["--list-tests"]' "$OUT") ;;
+  cmake)       load=$(jq -c '.test_command + ["-N"]' "$OUT") ;;
+  meson)       load=$(jq -c '.test_command + ["--list"]' "$OUT") ;;
+  *)           load='[]' ;;
+esac
+
 # Ceiling on a single test invocation. Compiled toolchains build first, so they
 # get a larger budget. PIPELINE_TEST_TIMEOUT overrides at run time.
 case "$framework" in
@@ -148,7 +166,7 @@ case "$framework" in
 esac
 
 tmp=$(mktemp)
-jq --argjson c "$collect" --argjson t "$timeout_s" \
-   '.collect_command = $c | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+jq --argjson c "$collect" --argjson l "$load" --argjson t "$timeout_s" \
+   '.collect_command = $c | .load_command = $l | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 
 echo "detected: $(jq -r '.language + " / " + .framework' "$OUT")"

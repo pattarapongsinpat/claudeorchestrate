@@ -45,7 +45,12 @@ done < <(jq -c '.setup_commands[]?' "$CONFIG")
 # RUN_TESTS_COLLECT=1 resolves the selector without executing anything, so a
 # caller can tell "these tests fail" apart from "these names match no test".
 # Adapters with no collect_command skip the check rather than fake an answer.
-if [[ -n "${RUN_TESTS_COLLECT:-}" ]]; then
+if [[ -n "${RUN_TESTS_LOAD:-}" ]]; then
+  test_json=$(jq -c '.load_command // []' "$CONFIG")
+  (( $(jq -r 'length' <<< "$test_json") )) || exit 0
+  run_json_command "$test_json"
+  exit
+elif [[ -n "${RUN_TESTS_COLLECT:-}" ]]; then
   test_json=$(jq -c '.collect_command // []' "$CONFIG")
   (( $(jq -r 'length' <<< "$test_json") )) || exit 0
 else

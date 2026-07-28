@@ -62,6 +62,10 @@ esac
 } > "$WORK/test-input.md"
 
 mkdir -p "$(dirname "$test_file")"
+[[ ! -e "$test_file" ]] || {
+  echo "refusing to overwrite existing generated-test path: $test_file" >&2
+  exit 1
+}
 "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/tester.txt" "$WORK/test-input.md" deepseek-v4-pro \
   | tee .pipeline/tests_spec.md > "$test_file"
 

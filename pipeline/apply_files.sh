@@ -24,6 +24,17 @@ norm() {
 }
 
 declare -A OK=()
+has_symlink_component() {
+  local candidate="$1" part current=""
+  IFS='/' read -r -a parts <<< "$candidate"
+  for part in "${parts[@]}"; do
+    [[ -z "$part" ]] && continue
+    current="${current:+$current/}$part"
+    [[ -L "$current" ]] && return 0
+  done
+  return 1
+}
+
 for f in "$@"; do
   p="$(norm "$f")"
   [[ -z "$p" ]] && continue
@@ -33,6 +44,7 @@ for f in "$@"; do
     /*|?:[/\\]*|..|../*|*/../*|*/..)
       echo "refusing unsafe allowlist path: $p" >&2; exit 2 ;;
   esac
+  has_symlink_component "$p" && { echo "refusing symlinked allowlist path: $p" >&2; exit 2; }
   OK["$p"]=1
 done
 
@@ -56,6 +68,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     ">>>>>>> ENDFILE")
       if [[ -z "$path" ]]; then continue; fi
       if [[ -n "${OK[$path]:-}" ]]; then
+        has_symlink_component "$path" && { echo "refusing symlinked output path: $path" >&2; exit 2; }
         mkdir -p "$(dirname "$path")"
         cp "$tmp" "$path"
       else

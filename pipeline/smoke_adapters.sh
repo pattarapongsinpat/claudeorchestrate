@@ -24,9 +24,11 @@ trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0; skip=0; warn=()
 
 have() { command -v "$1" >/dev/null 2>&1; }
+selected() { [[ -z "${SMOKE_ONLY:-}" || "$SMOKE_ONLY" == "$1" ]]; }
 
 # Run the adapter's test command; echo the exit code.
 rt() { ( cd "$1" && shift && "$PIPELINE_HOME/pipeline/run_tests.sh" "$@" >/dev/null 2>&1; echo $? ); }
+rtl() { ( cd "$1" && RUN_TESTS_LOAD=1 "$PIPELINE_HOME/pipeline/run_tests.sh" >/dev/null 2>&1; echo $? ); }
 
 check() {
   local name="$1" got="$2" want="$3"
@@ -45,6 +47,12 @@ verify_adapter() {
   framework=$(jq -r '.framework' "$d/.pipeline/toolchain.json")
   selector=$(jq -r '.selector_mode' "$d/.pipeline/toolchain.json")
   echo "  framework=$framework selector_mode=$selector"
+
+  if (( $(jq -r '.load_command | length' "$d/.pipeline/toolchain.json") )); then
+    check "E suite loads without running tests" "$(rtl "$d")" 0
+  else
+    echo "    --   E load-only check unavailable"
+  fi
 
   check "A unselected run fails"        "$(rt "$d")"        nonzero
   if [[ "$selector" == none ]]; then
@@ -67,7 +75,7 @@ skip_adapter() { echo "  SKIP ($1 not installed)"; skip=$((skip+1)); }
 
 # ---------------------------------------------------------------- python
 echo "== python / pytest"
-if have python && python -m pytest --version >/dev/null 2>&1; then
+if selected python && have python && python -m pytest --version >/dev/null 2>&1; then
   d="$ROOT/py"; mkdir -p "$d/tests"
   printf '[project]\nname="demo"\nversion="0.1"\n' > "$d/pyproject.toml"
   ( cd "$d" && "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null )
@@ -84,7 +92,7 @@ else skip_adapter pytest; fi
 
 # ---------------------------------------------------------------- node --test
 echo "== javascript / node-test"
-if have node; then
+if selected node && have node; then
   d="$ROOT/nodetest"; mkdir -p "$d/test"
   printf '{"name":"demo","version":"1.0.0"}\n' > "$d/package.json"
   ( cd "$d" && "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null )
@@ -100,7 +108,7 @@ else skip_adapter node; fi
 
 # ---------------------------------------------------------------- npm test
 echo "== javascript / npm-test (existing suite)"
-if have npm; then
+if selected npm && have npm; then
   d="$ROOT/npmtest"; mkdir -p "$d/test"
   printf '{"name":"demo","version":"1.0.0","scripts":{"test":"node --test"}}\n' > "$d/package.json"
   ( cd "$d" && "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null )
@@ -115,7 +123,7 @@ else skip_adapter npm; fi
 
 # ---------------------------------------------------------------- vitest
 echo "== javascript / vitest"
-if have npm; then
+if selected vitest && have npm; then
   d="$ROOT/vitest"; mkdir -p "$d/tests"
   printf '{"name":"demo","version":"1.0.0","devDependencies":{"vitest":"^2"}}\n' > "$d/package.json"
   if ( cd "$d" && npm install --silent --no-audit --no-fund >/dev/null 2>&1 ); then
@@ -132,7 +140,7 @@ else skip_adapter npm; fi
 
 # ---------------------------------------------------------------- jest
 echo "== javascript / jest"
-if have npm; then
+if selected jest && have npm; then
   d="$ROOT/jest"; mkdir -p "$d/tests"
   printf '{"name":"demo","version":"1.0.0","devDependencies":{"jest":"^29"}}\n' > "$d/package.json"
   if ( cd "$d" && npm install --silent --no-audit --no-fund >/dev/null 2>&1 ); then
@@ -147,7 +155,7 @@ else skip_adapter npm; fi
 
 # ---------------------------------------------------------------- go
 echo "== go / go test"
-if have go; then
+if selected go && have go; then
   d="$ROOT/go"; mkdir -p "$d"
   printf 'module example.test/demo\n\ngo 1.22\n' > "$d/go.mod"
   printf 'package demo\n\nfunc Demo() int { return 1 }\n' > "$d/demo.go"
@@ -165,7 +173,7 @@ else skip_adapter go; fi
 
 # ---------------------------------------------------------------- rust
 echo "== rust / cargo test"
-if have cargo; then
+if selected rust && have cargo; then
   d="$ROOT/rust"; mkdir -p "$d/src" "$d/tests"
   printf '[package]\nname="demo"\nversion="0.1.0"\nedition="2021"\n' > "$d/Cargo.toml"
   printf 'pub fn demo() -> i32 { 1 }\n' > "$d/src/lib.rs"
@@ -182,7 +190,7 @@ else skip_adapter cargo; fi
 
 # ---------------------------------------------------------------- maven
 echo "== java / maven"
-if have mvn; then
+if selected maven && have mvn; then
   d="$ROOT/maven"; mkdir -p "$d/src/test/java"
   cat > "$d/pom.xml" <<'EOF'
 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -211,12 +219,13 @@ else skip_adapter maven; fi
 
 # ---------------------------------------------------------------- gradle
 echo "== java / gradle"
-if have gradle; then
+if selected gradle && have gradle; then
   d="$ROOT/gradle"; mkdir -p "$d/src/test/java"
   cat > "$d/build.gradle" <<'EOF'
 plugins { id 'java' }
 repositories { mavenCentral() }
 dependencies { testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2' }
+dependencies { testRuntimeOnly 'org.junit.platform:junit-platform-launcher' }
 test { useJUnitPlatform() }
 EOF
   ( cd "$d" && "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null )
@@ -234,7 +243,7 @@ else skip_adapter gradle; fi
 
 # ---------------------------------------------------------------- dotnet
 echo "== csharp / dotnet test"
-if have dotnet; then
+if selected csharp && have dotnet; then
   d="$ROOT/csharp/Demo.Tests"; mkdir -p "$d"
   cat > "$d/Demo.Tests.csproj" <<'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
@@ -264,7 +273,7 @@ else skip_adapter dotnet; fi
 
 # ---------------------------------------------------------------- cmake
 echo "== c / cmake + ctest"
-if have cmake && have ctest; then
+if selected cmake && have cmake && have ctest; then
   d="$ROOT/cmake"; mkdir -p "$d"
   cat > "$d/CMakeLists.txt" <<'EOF'
 cmake_minimum_required(VERSION 3.20)
@@ -283,7 +292,7 @@ else skip_adapter cmake; fi
 
 # ---------------------------------------------------------------- meson
 echo "== c / meson"
-if have meson; then
+if selected meson && have meson; then
   d="$ROOT/meson"; mkdir -p "$d"
   cat > "$d/meson.build" <<'EOF'
 project('demo', 'c')
@@ -300,7 +309,7 @@ else skip_adapter meson; fi
 
 # ---------------------------------------------------------------- make
 echo "== c / make"
-if have make; then
+if selected make && have make; then
   d="$ROOT/make"; mkdir -p "$d"
   printf 'test:\n\t@exit 1\n' > "$d/Makefile"
   ( cd "$d" && "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null )

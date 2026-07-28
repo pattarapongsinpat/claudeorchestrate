@@ -12,7 +12,7 @@ check_case() {
     "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
     [[ "$(jq -r '.language' .pipeline/toolchain.json)" == "$expected_language" ]]
     [[ "$(jq -r '.framework' .pipeline/toolchain.json)" == "$expected_framework" ]]
-    jq -e '.supported == true and (.test_command | type == "array")' .pipeline/toolchain.json >/dev/null
+    jq -e '.supported == true and (.test_command | type == "array") and (.load_command | type == "array")' .pipeline/toolchain.json >/dev/null
   )
 }
 
@@ -75,6 +75,11 @@ export TEST_LOG="$WORK/runner/calls.log"
 
 (
   cd "$WORK/runner"
+  jq -n '{supported:true,setup_commands:[],test_command:["fake-test","run"],load_command:["fake-test","load"],selector_mode:"none",language:"test"}' > .pipeline/toolchain.json
+  PATH="$PWD/bin:$PATH" RUN_TESTS_LOAD=1 "$PIPELINE_HOME/pipeline/run_tests.sh"
+  grep -Fxq -- 'load' "$TEST_LOG"
+
+  : > "$TEST_LOG"
   jq -n '{supported:true,setup_commands:[],test_command:["fake-test"],selector_mode:"pytest",language:"python"}' > .pipeline/toolchain.json
   PATH="$PWD/bin:$PATH" "$PIPELINE_HOME/pipeline/run_tests.sh" alpha beta
   grep -Fxq -- '-k alpha or beta' "$TEST_LOG"
@@ -125,3 +130,26 @@ export TEST_LOG="$WORK/runner/calls.log"
 )
 
 echo "adapter detection tests passed"
+
+# The baseline loader must inspect the pre-existing suite without the generated
+# test file, then restore that file before running the expected-red baseline.
+mkdir -p "$WORK/baseline/.pipeline" "$WORK/baseline/bin" "$WORK/baseline/tests"
+cat > "$WORK/baseline/bin/fake-load" <<'EOF'
+#!/usr/bin/env bash
+[[ ! -e tests/pipeline_generated.test.js ]]
+EOF
+cat > "$WORK/baseline/bin/fake-red" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$WORK/baseline/bin/fake-load" "$WORK/baseline/bin/fake-red"
+printf 'generated\n' > "$WORK/baseline/tests/pipeline_generated.test.js"
+jq -n '{supported:true,generated_tests:true,generated_test_file:"tests/pipeline_generated.test.js",setup_commands:[],load_command:["fake-load"],collect_command:[],test_command:["fake-red"],selector_mode:"none",language:"javascript"}' > "$WORK/baseline/.pipeline/toolchain.json"
+(
+  cd "$WORK/baseline"
+  PATH="$PWD/bin:$PATH" "$PIPELINE_HOME/pipeline/check_baseline.sh" >/dev/null
+  [[ "$(cat tests/pipeline_generated.test.js)" == generated ]]
+  [[ ! -e .pipeline/HALT ]]
+)
+
+echo "baseline isolation tests passed"

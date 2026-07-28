@@ -13,10 +13,38 @@ CONFIG=.pipeline/toolchain.json
 halt() { echo "$1" > .pipeline/HALT; echo "$1" >&2; exit 1; }
 
 generated=$(jq -r '.generated_tests' "$CONFIG" | tr -d '\r')
+test_file=$(jq -r '.generated_test_file // ""' "$CONFIG" | tr -d '\r')
 
+# Validate the repository's existing suite independently. Generated tests often
+# reference APIs that do not exist yet and therefore cannot compile in Java, Go,
+# Rust, or C# until implementation is complete.
+held_test=""
+restore_test() {
+  if [[ -n "$held_test" && -f "$held_test" ]]; then
+    mkdir -p "$(dirname "$test_file")"
+    mv "$held_test" "$test_file"
+  fi
+}
+trap restore_test EXIT
+if [[ "$generated" == true && -n "$test_file" && -f "$test_file" ]]; then
+  held_test=$(mktemp)
+  mv "$test_file" "$held_test"
+fi
+
+if ! RUN_TESTS_LOAD=1 "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/load.out 2>&1; then
+  { echo "the existing test suite does not load, so no step can reliably pass:"
+    tail -30 .pipeline/load.out
+  } > .pipeline/HALT
+  echo "HALT: existing test suite fails to load; see .pipeline/HALT" >&2
+  exit 1
+fi
+restore_test
+held_test=""
+
+# Pytest supports true collection, so also reject malformed generated tests.
 mapfile -t collect < <(jq -r '.collect_command[]?' "$CONFIG" | tr -d '\r')
 if ((${#collect[@]})); then
-  if ! "${collect[@]}" > .pipeline/collect.out 2>&1; then
+  if ! RUN_TESTS_COLLECT=1 "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/collect.out 2>&1; then
     { echo "the test suite does not load, so no step can ever pass:"
       tail -30 .pipeline/collect.out
     } > .pipeline/HALT
