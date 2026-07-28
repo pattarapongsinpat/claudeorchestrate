@@ -11,6 +11,11 @@ PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLAN=.pipeline/plan_final.json
 [[ -f "$PLAN" ]] || { echo "no $PLAN" >&2; exit 1; }
 bash "$PIPELINE_HOME/pipeline/validate_plan.sh" "$PLAN" >/dev/null
+if ! test_name_error=$(bash "$PIPELINE_HOME/pipeline/validate_test_names.sh" "$PLAN" 2>&1); then
+  printf '%s\n' "$test_name_error" > .pipeline/ESCALATE
+  printf '%s\n' "$test_name_error" >&2
+  exit 1
+fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "ABORT: tree dirty at entry to waves." >&2

@@ -30,19 +30,16 @@ rm -f $WORK/feedback.md
 run_tests() { "$PIPELINE_HOME/pipeline/run_tests.sh" "${TEST_NAMES[@]}"; }
 
 # A selector matching no test exits 0 on most runners — verified against the real
-# toolchains for node --test, vitest, jest, cargo, dotnet and ctest. A wrong name
-# in plan_final.json would therefore run nothing and report PASS over an empty
-# implementation. Resolve the names first, on the adapters that can.
-if ((${#TEST_NAMES[@]})); then
-  if ! RUN_TESTS_COLLECT=1 "$PIPELINE_HOME/pipeline/run_tests.sh" "${TEST_NAMES[@]}" > $WORK/collect.out 2>&1; then
-    { echo "step: $STEP"
-      echo "mapped tests resolve to nothing: ${TEST_NAMES[*]}"
-      echo "either plan_final.json names tests that do not exist, or the suite fails to load"
-      tail -20 $WORK/collect.out
-    } > .pipeline/ESCALATE
-    echo "ESCALATE: $STEP mapped tests resolve to nothing" >&2
-    exit 1
-  fi
+# toolchains for node --test, Vitest, Jest, Go, Cargo, Maven and dotnet. Resolve
+# every generated test name from source before any coder call. Existing-suite
+# adapters map [] and run the complete suite.
+if ! bash "$PIPELINE_HOME/pipeline/validate_test_names.sh" "$PLAN" "$STEP" > $WORK/test_names.out 2>&1; then
+  { echo "step: $STEP"
+    cat $WORK/test_names.out
+  } > .pipeline/ESCALATE
+  cat $WORK/test_names.out >&2
+  echo "ESCALATE: $STEP has invalid mapped tests" >&2
+  exit 1
 fi
 
 # Red-before: a step whose tests already pass at BASE asserts nothing about it,

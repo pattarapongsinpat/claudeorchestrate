@@ -13,7 +13,7 @@ Checks:
 5. Split steps that perform more than one observable change.
 6. Add every file defining a consumed type, signature, constant, package, or namespace to `context_files`.
 7. Remove paths from `context_files` when they already appear in `files_allowed`.
-8. Assign each step a `tests` array containing exact native test case names that verify its `done_when`. Use `.pipeline/toolchain.json` for the language and selector mode. Every generated test must map to at least one step. In existing-suite mode, use an empty array when no exact test maps and record the coverage gap.
+8. Assign each step a `tests` array containing exact native test case names that verify its `done_when`. Use `.pipeline/toolchain.json` for the language and selector mode. Every generated test must map to at least one step. In existing-suite mode (`generated_tests: false`), always use an empty array so the step runs the full suite, and record the coverage limitation.
 9. Set `deps` to exactly the earlier steps whose output each step consumes. Add an edge when a context file is created by another step or when shared files require ordering.
 10. Enforce signature fidelity. When `generated_test_file` is present, compare every public call in that file against the intent's exact names, parameter names, order, types, packages, and namespaces. Edit only the configured generated test file to correct drift while preserving behavior. When `generated_tests` is false, do not edit existing tests.
 

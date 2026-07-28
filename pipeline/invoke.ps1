@@ -3,6 +3,8 @@ param(
     [ValidatePattern('^[A-Za-z0-9_-]+$')]
     [string]$Script,
 
+    [string]$Repo = (Get-Location).Path,
+
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
     [string[]]$ScriptArgs
 )
@@ -20,5 +22,18 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
     throw "Unknown pipeline script: $Script"
 }
 
-& $gitBash $scriptPath @ScriptArgs
-exit $LASTEXITCODE
+$repoPath = (Resolve-Path -LiteralPath $Repo).Path
+if (-not (Test-Path -LiteralPath $repoPath -PathType Container)) {
+    throw "Repository path is not a directory: $Repo"
+}
+
+$exitCode = 1
+Push-Location -LiteralPath $repoPath
+try {
+    & $gitBash $scriptPath @ScriptArgs
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    Pop-Location
+}
+exit $exitCode

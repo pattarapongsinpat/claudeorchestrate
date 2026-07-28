@@ -61,6 +61,12 @@ On Windows, run the installed-toolchain smoke suite with:
 powershell -ExecutionPolicy Bypass -File .\pipeline\invoke.ps1 smoke_adapters
 ```
 
+Run against a project without changing the caller's working directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" run -Repo "C:\path\to\project"
+```
+
 Test Maven without installing Java system-wide with:
 
 ```powershell

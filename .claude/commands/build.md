@@ -1,7 +1,7 @@
 Run the pipeline for this command's arguments. Halt immediately if `.pipeline/HALT` appears.
 
-On Windows, invoke every pipeline script through
-`powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" <script-name>`.
+On Windows, record the project root once and invoke every pipeline script through
+`powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" <script-name> -Repo "<project-root>"`.
 Never use bare `bash` on Windows because it may resolve to WSL. On macOS and
 Linux, use `bash "$HOME/.claudeochestrate/pipeline/<script-name>.sh"`.
 

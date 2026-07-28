@@ -58,7 +58,8 @@ toolchains write `.pipeline/HALT` with the reason.
 8. The native adapter runs the mapped tests after every implementation attempt.
 9. `pipeline/final_check.sh` runs the whole suite — steps only ran their own
    mapped tests, so a regression in untargeted tests surfaces only here.
-10. Claude reviews triggered changes and compares the final diff with the original request.
+10. A fresh Claude subagent receives only the original request and final diff,
+    then returns the ACCEPT or DRIFT verdict.
 11. Accepted step commits collapse into one implementation commit.
 
 ## Safety invariants
@@ -106,6 +107,13 @@ through `code.sh`.
 
 `pipeline/test_e2e_waves.sh` runs two file-disjoint DeepSeek implementation steps
 in parallel worktrees, cherry-picks both commits, and runs the complete suite.
+
+`pipeline/validate_test_names.sh` checks generated test mappings against their
+native source before waves. Existing-suite C and C++ steps use empty mappings
+and run the full suite.
+
+On Windows, `pipeline/invoke.ps1 <script> -Repo <project-root>` runs against an
+explicit repository and restores the caller's working directory.
 
 Run `pipeline/smoke_adapters.sh` to drive each adapter's real toolchain against a
 hand-written test file, also without the API. It checks that the runner discovers

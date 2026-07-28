@@ -11,8 +11,9 @@ The shared runtime is `$HOME/.claudeochestrate`.
 
 ## Shell invocation
 
-On Windows, never invoke bare `bash`; it may resolve to WSL. Run pipeline scripts
-with `powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" <script-name>`.
+On Windows, never invoke bare `bash`; it may resolve to WSL. Record the project
+root once, then run pipeline scripts with
+`powershell -ExecutionPolicy Bypass -File "$HOME\.claudeochestrate\pipeline\invoke.ps1" <script-name> -Repo "<project-root>"`.
 On macOS and Linux, use `bash "$HOME/.claudeochestrate/pipeline/<script-name>.sh"`.
 
 ## Preflight
@@ -47,7 +48,7 @@ On macOS and Linux, use `bash "$HOME/.claudeochestrate/pipeline/<script-name>.sh
 
 8. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeochestrate/.claude/commands/review.md`.
 
-9. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history.
+9. Always read and perform `$HOME/.claudeochestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there.
 
 10. On `ACCEPT`, collapse pipeline commits:
 

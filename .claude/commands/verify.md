@@ -1,15 +1,20 @@
-Read `.pipeline/request.txt` — the ORIGINAL request, not the intent artifact.
-Then read the full run diff: `git diff $(cat .pipeline/run_base)..HEAD`.
+Read `.pipeline/request.txt` and the full run diff from
+`git diff $(cat .pipeline/run_base)..HEAD`.
 
-Question: would the person who wrote that request accept this diff?
+Launch a fresh general-purpose subagent with no inherited conversation context.
+Give it only:
 
-Do not consult intent.md while judging. Its interpretation is the thing
-under test — checking the diff against it would confirm any misreading
-rather than catch it.
+1. The original request text, copied verbatim.
+2. The complete run diff.
+3. This question: "Would the person who wrote the request accept this diff?"
 
-Then read `.pipeline/intent.md` Ambiguities. For each: given the finished
-implementation, does the chosen interpretation still look right?
+Do not give the subagent `intent.md`, `intent.json`, plan artifacts, prior stage
+outputs, or your own assessment. The interpretation is under test. The
+subagent must return exactly one of:
 
-Write `.pipeline/verify.md`: ACCEPT, or DRIFT with the specific divergence.
-DRIFT means the intent artifact misread the request — report it rather than
-patching the code, because the bug is upstream.
+- `ACCEPT`
+- `DRIFT: <specific divergence from the original request>`
+
+Write its response verbatim to `.pipeline/verify.md`. Do not revise or override
+the isolated verdict. DRIFT reports an upstream misreading and must not patch
+the implementation.

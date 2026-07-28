@@ -26,6 +26,9 @@ readable.
 
 Rules:
 - Each step independently implementable by an agent that sees ONLY that step.
+- Native tests are created by a separate stage before implementation. Never
+  plan creation or modification of tests, even when the generated test path is
+  absent from the repository context.
 - files_allowed is the minimum. A path listed here that the step doesn't
   strictly need will be rejected at the gate.
 - No step may modify test files.

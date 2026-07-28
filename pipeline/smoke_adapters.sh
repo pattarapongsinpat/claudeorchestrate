@@ -318,7 +318,7 @@ else skip_adapter make; fi
 
 echo
 if ((${#warn[@]})); then
-  echo "WARNINGS (runner behavior, not a pipeline bug — but the gate must not emit a bad test name):"
+  echo "WARNINGS (runner behavior compensated by validate_test_names.sh before waves):"
   printf '  - %s\n' "${warn[@]}"
   echo
 fi

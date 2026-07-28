@@ -9,8 +9,8 @@ cd "$WORK/repo"
 
 cat > good.json <<'EOF'
 {"steps":[
-  {"id":"s1","files_allowed":["src/a.txt"],"context_files":[],"deps":[]},
-  {"id":"build_2","files_allowed":["src/b.txt"],"context_files":["src/a.txt"],"deps":["s1"]}
+  {"id":"s1","description":"change a","files_allowed":["src/a.txt"],"context_files":[],"deps":[],"tests":["test_a"],"done_when":"a works"},
+  {"id":"build_2","description":"change b","files_allowed":["src/b.txt"],"context_files":["src/a.txt"],"deps":["s1"],"tests":[],"done_when":"b works"}
 ]}
 EOF
 "$PIPELINE_HOME/pipeline/validate_plan.sh" good.json >/dev/null
@@ -30,6 +30,24 @@ jq '.steps[0].context_files = ["../../outside"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
 jq '.steps[0].files_allowed = ["C:\\\\outside.txt"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+jq '.steps[0].files_allowed = ["src/a.txt", "src/a.txt"]' good.json > bad.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+jq '.steps[0].context_files = ["src/a.txt"]' good.json > bad.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+jq '.steps[0].tests = "test_a"' good.json > bad.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+jq 'del(.steps[0].done_when)' good.json > bad.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+
+cp good.json .pipeline/plan_final.json
+printf '%s\n' '{"allowed_files":["src/a.txt"]}' > .pipeline/intent.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" .pipeline/plan_final.json >/dev/null 2>&1
+printf '%s\n' '{"allowed_files":["src/a.txt","src/b.txt"]}' > .pipeline/intent.json
+"$PIPELINE_HOME/pipeline/validate_plan.sh" .pipeline/plan_final.json >/dev/null
+printf '%s\n' '{"allowed_files":["src/a.txt","src/a.txt","src/b.txt"]}' > .pipeline/intent.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" .pipeline/plan_final.json >/dev/null 2>&1
+printf '%s\n' '{"allowed_files":["src/a.txt","src/b.txt","../escape"]}' > .pipeline/intent.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" .pipeline/plan_final.json >/dev/null 2>&1
 
 cat > output.txt <<'EOF'
 <<<<<<< FILE src/a.txt
