@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PIPELINE_HOME/pipeline/path_safety.sh"
 
 mkdir -p .pipeline
 OUT=.pipeline/toolchain.json
@@ -19,6 +21,7 @@ write_config() {
     --argjson test_command "$test_json" \
     --args '{supported:true, language:$language, framework:$framework,
             generated_tests:$generated, generated_test_file:$test_file,
+            verification_mode:"tests",
             selector_mode:$selector_mode, setup_commands:$setup_commands,
             test_command:$test_command, source_regex:$source_regex,
             dependency_files:$ARGS.positional}' "$@" > "$OUT"
@@ -137,6 +140,8 @@ elif compgen -G '*.sln' >/dev/null || compgen -G '*.slnx' >/dev/null || compgen 
     fi
     write_config csharp dotnet-build '' none false '[]' \
       "$(printf '%s\n' dotnet build "$build_target" | jq -R . | jq -s .)" '\.cs$' '*.sln' '*.slnx' '*.csproj' Directory.Build.props Directory.Build.targets packages.lock.json
+    tmp=$(mktemp)
+    jq '.verification_mode = "judgment"' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
   fi
 elif [[ -f CMakeLists.txt ]]; then
   language=c
@@ -204,6 +209,22 @@ case "$framework" in
   *)           load='[]' ;;
 esac
 
+# Mechanical checks retained when Opus must judge behavior directly. Some host
+# environments cannot execute meaningful unit tests, but compilation is still
+# valuable when the detected toolchain provides it.
+case "$framework" in
+  go-test)      judgment="$load" ;;
+  cargo-test)   judgment="$load" ;;
+  maven)        judgment="$load" ;;
+  gradle)       judgment="$load" ;;
+  dotnet-test)  judgment=$(jq -c '.test_command | .[1] = "build"' "$OUT") ;;
+  dotnet-build) judgment=$(jq -c '.test_command' "$OUT") ;;
+  cmake)        judgment='[]' ;;
+  meson)        judgment='["meson","compile","-C",".pipeline/build"]' ;;
+  make)         judgment='["make"]' ;;
+  *)            judgment='[]' ;;
+esac
+
 # Ceiling on a single test invocation. Compiled toolchains build first, so they
 # get a larger budget. PIPELINE_TEST_TIMEOUT overrides at run time.
 case "$framework" in
@@ -213,8 +234,8 @@ case "$framework" in
 esac
 
 tmp=$(mktemp)
-jq --argjson c "$collect" --argjson l "$load" --argjson t "$timeout_s" \
-   '.collect_command = $c | .load_command = $l | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+jq --argjson c "$collect" --argjson l "$load" --argjson j "$judgment" --argjson t "$timeout_s" \
+   '.collect_command = $c | .load_command = $l | .judgment_command = $j | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 
 # Repositories with non-standard suites can commit an exact adapter override.
 # This avoids rediscovering custom harness commands on every run and lets the
@@ -226,12 +247,21 @@ if [[ -f "$OVERRIDE" ]]; then
     all(keys[]; IN("test_command", "load_command", "collect_command", "setup_commands",
                    "selector_mode", "generated_tests", "generated_test_file",
                    "framework", "test_timeout_seconds", "test_project_coverage",
-                   "linked_source_files")) and
-    ((.test_command // []) | type == "array") and
-    ((.load_command // []) | type == "array") and
-    ((.collect_command // []) | type == "array") and
-    ((.setup_commands // []) | type == "array")
+                   "linked_source_files", "verification_mode", "judgment_command")) and
+    ((.test_command // []) | type == "array" and all(.[]; type == "string")) and
+    ((.load_command // []) | type == "array" and all(.[]; type == "string")) and
+    ((.collect_command // []) | type == "array" and all(.[]; type == "string")) and
+    ((.judgment_command // []) | type == "array" and all(.[]; type == "string")) and
+    ((.setup_commands // []) | type == "array" and all(.[]; type == "array" and all(.[]; type == "string"))) and
+    ((.generated_tests // false) | type == "boolean") and
+    ((.generated_test_file // "") | type == "string") and
+    ((.verification_mode // "tests") | IN("tests", "judgment")) and
+    ((.selector_mode // "none") | IN("none", "pytest", "regex", "node", "repeat", "maven", "gradle", "dotnet", "ctest")) and
+    ((.test_timeout_seconds // 600) | type == "number" and . > 0)
   ' "$OVERRIDE" >/dev/null || unsupported 'invalid .pipeline-toolchain.json override'
+  override_test_file=$(jq -r '.generated_test_file // ""' "$OVERRIDE" | tr -d '\r')
+  [[ -z "$override_test_file" ]] || safe_repo_path "$override_test_file" \
+    || unsupported 'unsafe generated_test_file in .pipeline-toolchain.json override'
   tmp=$(mktemp)
   jq -s '.[0] * .[1] | .dependency_files += [".pipeline-toolchain.json"] | .dependency_files |= unique' \
     "$OUT" "$OVERRIDE" > "$tmp" && mv "$tmp" "$OUT"

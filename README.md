@@ -53,14 +53,22 @@ may otherwise launch WSL.
 
 Supported languages are Python, JavaScript, TypeScript, Go, Rust, Java, C#,
 C, and C++. C and C++ use the project's existing native test suite. C# uses
-generated tests when a test project exists and compile-only verification otherwise.
+generated tests when a test project exists and compile plus Opus judgment otherwise.
+
+When behavioral tests cannot run outside a host such as BepInEx, a game engine,
+hardware, or proprietary software, the Opus intent stage may select the judgment
+fallback with a concrete reason. The pipeline keeps any available compile check,
+requires Opus review, and still requires isolated final verification. C# projects
+without a test project use this mode automatically. The explicit fallback works
+for every supported language.
 
 ## Repository configuration
 
 Commit `.pipeline-toolchain.json` when automatic detection does not represent the
 real suite. It may override `test_command`, `load_command`, `collect_command`,
-`setup_commands`, `selector_mode`, `generated_tests`, `generated_test_file`, and
-`framework`. For compiled red-to-green tests, make `load_command` build the
+`judgment_command`, `setup_commands`, `selector_mode`, `generated_tests`,
+`generated_test_file`, `verification_mode`, and `framework`. For compiled
+red-to-green tests, make `load_command` build the
 pre-existing suite while omitting projects that intentionally reference the new API.
 
 The model safety scanner rejects writable files containing credential-shaped text.

@@ -154,13 +154,21 @@ for i in 1 2 3; do
   # tree, so every added line would read as a dependency violation.
   DEPS=""
   if ((${#DEPENDENCY_FILES[@]})); then
-    DEPS=$(git diff "$BASE" -- "${DEPENDENCY_FILES[@]}" 2>/dev/null | grep '^+[^+]' || true)
+    DEPS=$( {
+      git diff "$BASE" --name-only -- "${DEPENDENCY_FILES[@]}"
+      git ls-files --others --exclude-standard -- "${DEPENDENCY_FILES[@]}"
+    } 2>/dev/null | sort -u )
   fi
-  TESTS=$(printf '%s\n' "$TOUCHED" | grep -Ei '(^|/)(test|tests)/|src/test/|test_|_test\.|\.test\.|\.spec\.|Tests?\.cs$' || true)
+  GENERATED_TEST_FILE=$(jq -r '.generated_test_file // ""' .pipeline/toolchain.json | tr -d '\r')
+  TESTS=$( {
+    printf '%s\n' "$TOUCHED" | grep -Ei '(^|/)(test|tests)/|(^|/)test_[^/]+|_test\.|\.test\.|\.spec\.' || true
+    printf '%s\n' "$TOUCHED" | grep -E '(^|/)[^/]*(Test|Tests)\.cs$' || true
+    [[ -z "$GENERATED_TEST_FILE" ]] || printf '%s\n' "$TOUCHED" | grep -Fx -- "$GENERATED_TEST_FILE" || true
+  } | sort -u )
 
   if [[ -n "$DEPS$TESTS" ]]; then
     { echo "SCOPE VIOLATION — reverted. Redo within bounds."
-      [[ -n "$DEPS"  ]] && echo "Dependencies added: $DEPS"
+      [[ -n "$DEPS"  ]] && echo "Dependency files modified: $DEPS"
       [[ -n "$TESTS" ]] && echo "Test files modified: $TESTS"
       echo "Allowed only: ${ALLOWED[*]}"
     } > $WORK/feedback.md

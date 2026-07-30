@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # usage: ctx.sh [--writable] <file>... > context.md
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PIPELINE_HOME/pipeline/path_safety.sh"
 
 WRITABLE=0
 [[ "${1:-}" == "--writable" ]] && { WRITABLE=1; shift; }
@@ -40,6 +42,18 @@ for original in "$@"; do
   [[ -z "$original" ]] && continue
   f="${original#./}"
   echo "### $f"
+
+  if ! safe_repo_path "$f"; then
+    if ((WRITABLE)); then block_writable "$f" "unsafe repository path"; else echo "(withheld: unsafe repository path)"; fi
+    echo
+    continue
+  fi
+
+  if has_symlink_component "$f"; then
+    if ((WRITABLE)); then block_writable "$f" "symlinked path"; else echo "(withheld: symlinked path)"; fi
+    echo
+    continue
+  fi
 
   if is_explicitly_excluded "$f"; then
     if ((WRITABLE)); then block_writable "$f" "listed in $MODEL_EXCLUDE"; else echo "(excluded by $MODEL_EXCLUDE)"; fi

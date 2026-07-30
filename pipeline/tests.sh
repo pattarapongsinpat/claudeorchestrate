@@ -1,9 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PIPELINE_HOME/pipeline/path_safety.sh"
 [[ -f .pipeline/HALT ]] && { echo "halted before tests"; exit 1; }
 CONFIG=.pipeline/toolchain.json
 [[ -f "$CONFIG" ]] || "$PIPELINE_HOME/pipeline/detect.sh"
+
+jq -e '
+  ((.verification // {mode:"tests"}) | type == "object") and
+  ((.verification.mode // "tests") | IN("tests", "judgment")) and
+  (if (.verification.mode // "tests") == "judgment"
+   then (.verification.reason | type == "string" and length > 0)
+   else true end)
+' .pipeline/intent.json >/dev/null || {
+  echo "invalid intent verification mode or missing judgment reason" >&2
+  exit 1
+}
+
+requested_mode=$(jq -r '.verification.mode // "tests"' .pipeline/intent.json | tr -d '\r')
+detected_mode=$(jq -r '.verification_mode // "tests"' "$CONFIG" | tr -d '\r')
+if [[ "$requested_mode" == judgment || "$detected_mode" == judgment ]]; then
+  reason=$(jq -r '.verification.reason // "the detected adapter has no executable behavioral test suite"' .pipeline/intent.json | tr -d '\r')
+  tmp=$(mktemp)
+  jq '.verification_mode = "judgment"
+      | .generated_tests = false
+      | .generated_test_file = ""
+      | .selector_mode = "none"
+      | .test_command = (.judgment_command // [])
+      | .load_command = (.judgment_command // [])
+      | .collect_command = []' "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
+  {
+    echo "# Opus judgment fallback"
+    echo
+    echo "Behavioral tests are unavailable: $reason"
+    echo
+    echo "The pipeline will run the configured mechanical command when available."
+    echo "Opus review and isolated final verification are mandatory."
+    echo
+    echo "## Toolchain"
+    jq . "$CONFIG"
+  } > .pipeline/tests_spec.md
+  echo "judgment fallback: $reason"
+  exit 0
+fi
+
 bash "$PIPELINE_HOME/pipeline/validate_test_reachability.sh"
 
 if [[ "$(jq -r '.generated_tests' "$CONFIG")" != true ]]; then
@@ -62,8 +102,10 @@ esac
   done < <(rg --files | grep -E "$(jq -r '.source_regex' "$CONFIG")" | head -150)
 } > "$WORK/test-input.md"
 
+safe_repo_path "$test_file" || { echo "unsafe generated-test path: $test_file" >&2; exit 1; }
+has_symlink_component "$test_file" && { echo "refusing symlinked generated-test path: $test_file" >&2; exit 1; }
 mkdir -p "$(dirname "$test_file")"
-[[ ! -e "$test_file" ]] || {
+[[ ! -e "$test_file" && ! -L "$test_file" ]] || {
   echo "refusing to overwrite existing generated-test path: $test_file" >&2
   exit 1
 }

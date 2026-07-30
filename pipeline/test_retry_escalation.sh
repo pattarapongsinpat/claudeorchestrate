@@ -14,7 +14,7 @@ make_repo() {
     git config user.name 'Pipeline Retry Test'
     git config user.email 'pipeline@example.invalid'
     printf '/.pipeline/\n' >> "$(git rev-parse --git-path info/exclude)"
-    printf '%s\n' '{"name":"retry-fixture","version":"1.0.0","type":"commonjs"}' > package.json
+    printf '%s\n' '{"name":"retry-fixture","version":"1.0.0","type":"commonjs","dependencies":{"left-pad":"1.3.0"}}' > package.json
     cat > calculator.js <<'EOF'
 function add(left, right) { return 0; }
 module.exports = { add };
@@ -81,6 +81,48 @@ chmod +x "$WORK/escalate-model.sh"
   grep -Fq 'exhausted 3 iterations' .pipeline/ESCALATE
   [[ ! -e outside.js ]]
   git diff --quiet
+)
+
+MANIFEST_REPO="$WORK/manifest"
+make_repo "$MANIFEST_REPO"
+cat > "$WORK/manifest-model.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' \
+  '<<<<<<< FILE package.json' \
+  '{"name":"retry-fixture","version":"1.0.0","type":"commonjs"}' \
+  '>>>>>>> ENDFILE'
+EOF
+chmod +x "$WORK/manifest-model.sh"
+(
+  cd "$MANIFEST_REPO"
+  cat > .pipeline/plan_final.json <<'EOF'
+{"steps":[{"id":"s1","description":"rewrite manifest","files_allowed":["package.json"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"manifest remains valid"}]}
+EOF
+  rc=0
+  PIPELINE_DS_COMMAND="$WORK/manifest-model.sh" "$PIPELINE_HOME/pipeline/code.sh" s1 >/dev/null 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  grep -Fq 'left-pad' package.json
+  git diff --quiet
+)
+
+CONTEST_REPO="$WORK/contest"
+make_repo "$CONTEST_REPO"
+cat > "$WORK/contest-model.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '<<<<<<< FILE Contest.cs' 'internal class Contest { }' '>>>>>>> ENDFILE'
+EOF
+chmod +x "$WORK/contest-model.sh"
+(
+  cd "$CONTEST_REPO"
+  printf '%s\n' 'internal class Contest { }' > Contest.cs
+  printf '%s\n' 'function add(left, right) { return left + right; }' 'module.exports = { add };' > calculator.js
+  git add Contest.cs calculator.js
+  git commit -qm 'add production Contest class'
+  cat > .pipeline/plan_final.json <<'EOF'
+{"steps":[{"id":"s1","description":"update production class","files_allowed":["Contest.cs"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"production class is updated"}]}
+EOF
+  PIPELINE_DS_COMMAND="$WORK/contest-model.sh" "$PIPELINE_HOME/pipeline/code.sh" s1 >/dev/null
+  git diff --quiet -- Contest.cs
 )
 
 RESUME_REPO="$WORK/resume"

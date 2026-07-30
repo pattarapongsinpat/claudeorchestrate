@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PIPELINE_HOME/pipeline/path_safety.sh"
 
 PLAN="${1:-.pipeline/plan_final.json}"
 [[ -f "$PLAN" ]] || { echo "missing plan: $PLAN" >&2; exit 1; }
@@ -40,17 +42,8 @@ for id in "${IDS[@]}"; do
   SEEN["$id"]=1
 done
 
-safe_path() {
-  local path="$1"
-  [[ -n "$path" && "$path" != *$'\n'* && "$path" != *$'\r'* ]] || return 1
-  case "$path" in
-    /*|?:[/\\]*|.|..|../*|*/../*|*/..) return 1 ;;
-  esac
-  return 0
-}
-
 while IFS= read -r path; do
-  safe_path "$path" || { echo "unsafe plan path: $path" >&2; exit 1; }
+  safe_repo_path "$path" || { echo "unsafe plan path: $path" >&2; exit 1; }
 done < <(jq -r '.steps[] | (.files_allowed[]), (.context_files[])' "$PLAN" | tr -d '\r')
 
 INTENT="$(dirname "$PLAN")/intent.json"
@@ -59,7 +52,7 @@ if [[ -f "$INTENT" ]]; then
     echo "invalid intent allowlist" >&2; exit 1;
   }
   while IFS= read -r path; do
-    safe_path "$path" || { echo "unsafe intent path: $path" >&2; exit 1; }
+    safe_repo_path "$path" || { echo "unsafe intent path: $path" >&2; exit 1; }
   done < <(jq -r '.allowed_files[]' "$INTENT" | tr -d '\r')
   while IFS= read -r path; do
     jq -e --arg path "$path" '.allowed_files | index($path) != null' "$INTENT" >/dev/null || {
@@ -74,6 +67,26 @@ for id in "${IDS[@]}"; do
     [[ "$dep" != "$id" ]] || { echo "step depends on itself: $id" >&2; exit 1; }
     [[ -n "${SEEN[$dep]:-}" ]] || { echo "unknown dependency for $id: $dep" >&2; exit 1; }
   done < <(jq -r --arg id "$id" '.steps[] | select(.id == $id) | (.deps // [])[]' "$PLAN" | tr -d '\r')
+done
+
+declare -A RESOLVED=()
+resolved_count=0
+while ((resolved_count < ${#IDS[@]})); do
+  progress=0
+  for id in "${IDS[@]}"; do
+    [[ -n "${RESOLVED[$id]:-}" ]] && continue
+    ready=1
+    while IFS= read -r dep; do
+      [[ -z "$dep" ]] && continue
+      [[ -n "${RESOLVED[$dep]:-}" ]] || ready=0
+    done < <(jq -r --arg id "$id" '.steps[] | select(.id == $id) | (.deps // [])[]' "$PLAN" | tr -d '\r')
+    if ((ready)); then
+      RESOLVED["$id"]=1
+      resolved_count=$((resolved_count + 1))
+      progress=1
+    fi
+  done
+  ((progress)) || { echo "dependency cycle in plan" >&2; exit 1; }
 done
 
 echo "plan valid"

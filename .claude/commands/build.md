@@ -10,6 +10,8 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
 
 1. /intent — write request.txt, intent.md, intent.json.
    Confidence low → stop, surface questions, do not continue.
+   Intent may choose judgment mode only when behavioral tests require an
+   unavailable host, hardware, or proprietary runtime. Record the exact reason.
 2. Run in ONE turn so outputs can't contaminate each other: pipeline scripts
    `plan` and `tests`. Then run pipeline script `check_baseline`. It writes
    `.pipeline/HALT` and fails when the suite does not load, or when generated tests
@@ -33,6 +35,7 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    NOOP, or a repeat-touched file) and prints why. On exit 0, run pipeline script
    `review_ctx`, then /review.
    review_ctx.sh must run first — /review reads its output.
+   Judgment mode always requires this Opus review.
 7. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
    so run it BEFORE any history collapse. Then run pipeline script
    `validate_verify`; collapse only when it exits 0.

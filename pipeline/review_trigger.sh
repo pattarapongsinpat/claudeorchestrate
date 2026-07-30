@@ -4,6 +4,11 @@
 set -euo pipefail
 reasons=()
 
+if [[ -f .pipeline/toolchain.json ]] &&
+   [[ "$(jq -r '.verification_mode // "tests"' .pipeline/toolchain.json | tr -d '\r')" == judgment ]]; then
+  reasons+=("behavioral tests are unavailable; Opus judgment is mandatory")
+fi
+
 # Persistent run history survives escalation recovery and later waves.
 if [[ -f .pipeline/done.json ]]; then
   while IFS=$'\t' read -r step attempts escalated; do

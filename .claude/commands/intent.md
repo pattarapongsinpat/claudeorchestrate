@@ -28,8 +28,20 @@ authoritative — plan and gate read the JSON, not this prose. Keep them equal.
 # Ambiguities
 Each: description, the interpretations available, which was chosen, why.
 
+# Verification
+`mode: tests` by default. Use `mode: judgment` only when observable behavior
+requires a host, hardware, or proprietary runtime that is unavailable to the
+pipeline, such as a BepInEx game process. Record a concrete `reason`. Missing
+dependencies, a broken suite, or tests that are merely difficult are not valid
+reasons. The structured form is
+`"verification":{"mode":"tests|judgment","reason":"..."}`. Omit `reason`
+for test mode.
+
 # Confidence
 high | medium | low
+
+Judgment mode keeps available compilation checks but requires Opus review and
+isolated final verification.
 
 Rules:
 - `low` → STOP. Write `.pipeline/HALT` with the questions. Do not continue.

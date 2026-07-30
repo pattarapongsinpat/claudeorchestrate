@@ -71,6 +71,10 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
    - Pipeline script `plan`
    - Pipeline script `tests`
 
+   The Opus intent stage may select judgment mode only when behavioral tests
+   require an unavailable host, hardware, or proprietary runtime. The test
+   stage then retains available mechanical checks and skips test generation.
+
 4. Run pipeline script `check_baseline` before implementation. It HALTs when the existing suite fails to load or when generated tests are already green. Stop on HALT rather than editing code to satisfy it.
 
 5. Read `$HOME/.claudeorchestrate/.claude/commands/gate.md` and perform its instructions. Then re-run pipeline script `check_baseline`, because the gate may edit the generated test file, and run `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
@@ -83,6 +87,8 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 
 8. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.
 
+   Judgment mode always triggers this Opus review.
+
 9. Always read and perform `$HOME/.claudeorchestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
 
 10. On `ACCEPT`, collapse pipeline commits:
@@ -93,4 +99,4 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 
 11. Append the run result to `.pipeline/log.csv` and report token usage from pipeline script `usage`.
 
-Report the final verdict, changed files, tests, and commit hash. Keep the response concise.
+Report the final verdict, changed files, tests or judgment fallback, and commit hash. Keep the response concise.

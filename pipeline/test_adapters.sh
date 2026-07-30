@@ -24,6 +24,11 @@ mkdir -p "$WORK/javascript"
 printf '{"devDependencies":{"vitest":"latest"}}\n' > "$WORK/javascript/package.json"
 check_case javascript javascript vitest
 
+mkdir -p "$WORK/typescript"
+printf '{"devDependencies":{"vitest":"latest"}}\n' > "$WORK/typescript/package.json"
+printf '{"compilerOptions":{"strict":true}}\n' > "$WORK/typescript/tsconfig.json"
+check_case typescript typescript vitest
+
 mkdir -p "$WORK/go/pkg"
 printf 'module example.test/demo\n\ngo 1.22\n' > "$WORK/go/go.mod"
 printf 'package pkg\n' > "$WORK/go/pkg/demo.go"
@@ -47,6 +52,7 @@ check_case csharp-build csharp dotnet-build
 (
   cd "$WORK/csharp-build"
   jq -e '.generated_tests == false and .selector_mode == "none" and .generated_test_file == "" and .test_command == ["dotnet","build","src/Demo.csproj"]' .pipeline/toolchain.json >/dev/null
+  jq -e '.verification_mode == "judgment" and .judgment_command == .test_command' .pipeline/toolchain.json >/dev/null
 )
 
 mkdir -p "$WORK/csharp-metadata/specs"
@@ -91,6 +97,37 @@ EOF
   jq -e '.framework == "custom" and .test_command == ["custom-suite"] and .load_command == ["custom-load"] and (.dependency_files | index(".pipeline-toolchain.json") != null)' .pipeline/toolchain.json >/dev/null
 )
 
+mkdir -p "$WORK/bad-override-path"
+printf '[project]\nname="bad-path"\n' > "$WORK/bad-override-path/pyproject.toml"
+printf '%s\n' '{"generated_test_file":"..\\outside.py"}' > "$WORK/bad-override-path/.pipeline-toolchain.json"
+(
+  cd "$WORK/bad-override-path"
+  ! "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null 2>&1
+  grep -Fq 'unsafe generated_test_file' .pipeline/HALT
+)
+
+mkdir -p "$WORK/bad-override-command"
+printf '[project]\nname="bad-command"\n' > "$WORK/bad-override-command/pyproject.toml"
+printf '%s\n' '{"setup_commands":["not-a-command-array"]}' > "$WORK/bad-override-command/.pipeline-toolchain.json"
+(
+  cd "$WORK/bad-override-command"
+  ! "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null 2>&1
+  grep -Fq 'invalid .pipeline-toolchain.json' .pipeline/HALT
+)
+
+mkdir -p "$WORK/judgment"
+printf '[project]\nname="judgment"\n' > "$WORK/judgment/pyproject.toml"
+(
+  cd "$WORK/judgment"
+  "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+  printf '%s\n' '{"allowed_files":["plugin.py"],"verification":{"mode":"judgment","reason":"behavior requires a running game host"}}' > .pipeline/intent.json
+  "$PIPELINE_HOME/pipeline/tests.sh" >/dev/null
+  jq -e '.verification_mode == "judgment" and .generated_tests == false and .generated_test_file == "" and .test_command == []' .pipeline/toolchain.json >/dev/null
+  "$PIPELINE_HOME/pipeline/check_baseline.sh" | grep -Fq 'Opus will judge behavior directly'
+  "$PIPELINE_HOME/pipeline/final_check.sh" | grep -Fq 'Opus judgment is still required'
+  "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 'Opus judgment is mandatory'
+)
+
 mkdir -p "$WORK/c"
 printf 'cmake_minimum_required(VERSION 3.20)\n' > "$WORK/c/CMakeLists.txt"
 printf 'int demo(void);\n' > "$WORK/c/demo.c"
@@ -100,6 +137,16 @@ mkdir -p "$WORK/cpp"
 printf 'cmake_minimum_required(VERSION 3.20)\n' > "$WORK/cpp/CMakeLists.txt"
 printf 'int demo();\n' > "$WORK/cpp/demo.cpp"
 check_case cpp cpp cmake
+
+for fallback_case in python javascript typescript go rust java csharp csharp-build c cpp; do
+  (
+    cd "$WORK/$fallback_case"
+    printf '%s\n' '{"allowed_files":["src/change.txt"],"verification":{"mode":"judgment","reason":"behavior requires an unavailable host runtime"}}' > .pipeline/intent.json
+    "$PIPELINE_HOME/pipeline/tests.sh" >/dev/null
+    jq -e '.verification_mode == "judgment" and .generated_tests == false and .generated_test_file == "" and .selector_mode == "none"' .pipeline/toolchain.json >/dev/null
+    "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 'Opus judgment is mandatory'
+  )
+done
 
 mkdir -p "$WORK/runrepo"
 (

@@ -30,6 +30,10 @@ jq '.steps[0].context_files = ["../../outside"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
 jq '.steps[0].files_allowed = ["C:\\\\outside.txt"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+for bad_path in '..\outside.txt' 'C:outside.txt' 'src//file.txt' 'src/./file.txt'; do
+  jq --arg path "$bad_path" '.steps[0].files_allowed = [$path]' good.json > bad.json
+  ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+done
 jq '.steps[0].files_allowed = ["src/a.txt", "src/a.txt"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
 jq '.steps[0].context_files = ["src/a.txt"]' good.json > bad.json
@@ -37,6 +41,8 @@ jq '.steps[0].context_files = ["src/a.txt"]' good.json > bad.json
 jq '.steps[0].tests = "test_a"' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
 jq 'del(.steps[0].done_when)' good.json > bad.json
+! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
+jq '.steps[0].deps = ["build_2"]' good.json > bad.json
 ! "$PIPELINE_HOME/pipeline/validate_plan.sh" bad.json >/dev/null 2>&1
 
 cp good.json .pipeline/plan_final.json
@@ -57,6 +63,13 @@ EOF
 "$PIPELINE_HOME/pipeline/apply_files.sh" output.txt src/a.txt
 [[ "$(cat src/a.txt)" == safe ]]
 ! "$PIPELINE_HOME/pipeline/apply_files.sh" output.txt ../src/a.txt >/dev/null 2>&1
+! "$PIPELINE_HOME/pipeline/apply_files.sh" output.txt '..\src\a.txt' >/dev/null 2>&1
+
+readonly_ctx=$("$PIPELINE_HOME/pipeline/ctx.sh" ../outside.txt)
+[[ "$readonly_ctx" == *'withheld: unsafe repository path'* ]]
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable '..\outside.txt' >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
 
 mkdir outside linked-parent
 if ln -s "$WORK/repo/outside" linked-parent/link 2>/dev/null && [[ -L linked-parent/link ]]; then
@@ -69,6 +82,22 @@ EOF
   "$PIPELINE_HOME/pipeline/apply_files.sh" symlink-output.txt linked-parent/link/escaped.txt >/dev/null 2>&1 || rc=$?
   [[ "$rc" == 2 ]]
   [[ ! -e outside/escaped.txt ]]
+
+  printf '%s\n' 'outside content' > outside/context.txt
+  readonly_ctx=$("$PIPELINE_HOME/pipeline/ctx.sh" linked-parent/link/context.txt)
+  [[ "$readonly_ctx" == *'withheld: symlinked path'* ]]
+  [[ "$readonly_ctx" != *'outside content'* ]]
+  rc=0
+  "$PIPELINE_HOME/pipeline/ctx.sh" --writable linked-parent/link/context.txt >/dev/null 2>&1 || rc=$?
+  [[ "$rc" == 3 ]]
+fi
+
+printf '%s\n' 'external original' > outside/hardlink.txt
+if ln outside/hardlink.txt hardlink.txt 2>/dev/null; then
+  printf '%s\n' '<<<<<<< FILE hardlink.txt' 'repository replacement' '>>>>>>> ENDFILE' > hardlink-output.txt
+  "$PIPELINE_HOME/pipeline/apply_files.sh" hardlink-output.txt hardlink.txt
+  [[ "$(cat hardlink.txt)" == 'repository replacement' ]]
+  [[ "$(cat outside/hardlink.txt)" == 'external original' ]]
 fi
 
 printf '%s\n' 'api_key="sk-test_123456789012345678901234567890"' > sensitive.txt

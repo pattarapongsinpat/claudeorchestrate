@@ -14,6 +14,7 @@ halt() { echo "$1" > .pipeline/HALT; echo "$1" >&2; exit 1; }
 
 generated=$(jq -r '.generated_tests' "$CONFIG" | tr -d '\r')
 test_file=$(jq -r '.generated_test_file // ""' "$CONFIG" | tr -d '\r')
+verification_mode=$(jq -r '.verification_mode // "tests"' "$CONFIG" | tr -d '\r')
 
 # Validate the repository's existing suite independently. Generated tests often
 # reference APIs that do not exist yet and therefore cannot compile in Java, Go,
@@ -54,11 +55,19 @@ if ((${#collect[@]})); then
 fi
 
 if "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/baseline.out 2>&1; then
+  if [[ "$verification_mode" == judgment ]]; then
+    echo "mechanical baseline green; Opus will judge behavior directly"
+    exit 0
+  fi
   [[ "$generated" == true ]] &&
     halt "baseline is green before implementation; the generated tests assert nothing"
   echo "baseline green (existing-suite adapter) — proceeding"
   exit 0
 fi
 
-echo "baseline red — proceeding"
+if [[ "$verification_mode" == judgment ]]; then
+  echo "mechanical baseline red — proceeding so the requested change may repair it"
+else
+  echo "baseline red — proceeding"
+fi
 tail -5 .pipeline/baseline.out

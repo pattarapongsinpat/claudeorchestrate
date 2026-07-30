@@ -12,6 +12,8 @@
 #
 # Exit codes: 0 applied, 1 scope violation, 2 unsafe allowlist, 3 malformed output.
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PIPELINE_HOME/pipeline/path_safety.sh"
 OUT="$1"; shift
 
 # Markers are matched after stripping CR and trailing blanks: a CRLF response
@@ -24,34 +26,24 @@ norm() {
 }
 
 declare -A OK=()
-has_symlink_component() {
-  local candidate="$1" part current=""
-  IFS='/' read -r -a parts <<< "$candidate"
-  for part in "${parts[@]}"; do
-    [[ -z "$part" ]] && continue
-    current="${current:+$current/}$part"
-    [[ -L "$current" ]] && return 0
-  done
-  return 1
-}
 
 for f in "$@"; do
   p="$(norm "$f")"
   [[ -z "$p" ]] && continue
   # The allowlist comes from the gate, but a traversal or absolute path must
   # never reach the write below.
-  case "$p" in
-    /*|?:[/\\]*|..|../*|*/../*|*/..)
-      echo "refusing unsafe allowlist path: $p" >&2; exit 2 ;;
-  esac
+  safe_repo_path "$p" || { echo "refusing unsafe allowlist path: $p" >&2; exit 2; }
   has_symlink_component "$p" && { echo "refusing symlinked allowlist path: $p" >&2; exit 2; }
   OK["$p"]=1
 done
 
-viol=0; malformed=0; path=""; tmp=""
+viol=0; malformed=0; path=""; tmp=""; write_tmp=""
 # Use `if`, not `&&`: a trailing `&& rm` that short-circuits returns 1, and an
 # EXIT trap's non-zero status leaks out as the script's exit code.
-cleanup(){ if [[ -n "$tmp" && -f "$tmp" ]]; then rm -f "$tmp"; fi; }
+cleanup(){
+  if [[ -n "$tmp" && -f "$tmp" ]]; then rm -f "$tmp"; fi
+  if [[ -n "$write_tmp" && -f "$write_tmp" ]]; then rm -f "$write_tmp"; fi
+}
 trap cleanup EXIT
 
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -69,8 +61,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
       if [[ -z "$path" ]]; then continue; fi
       if [[ -n "${OK[$path]:-}" ]]; then
         has_symlink_component "$path" && { echo "refusing symlinked output path: $path" >&2; exit 2; }
-        mkdir -p "$(dirname "$path")"
-        cp "$tmp" "$path"
+        parent=$(dirname "$path")
+        mkdir -p "$parent"
+        write_tmp=$(mktemp "$parent/.pipeline-write.XXXXXX")
+        cp "$tmp" "$write_tmp"
+        [[ ! -e "$path" ]] || chmod --reference="$path" "$write_tmp"
+        mv -f "$write_tmp" "$path"
+        write_tmp=""
       else
         echo "$path"; viol=1
       fi
