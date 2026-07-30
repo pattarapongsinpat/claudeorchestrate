@@ -26,6 +26,9 @@ readable.
 
 Rules:
 - Each step independently implementable by an agent that sees ONLY that step.
+- In compiled languages, a signature change and every production caller needed
+  for the repository to compile belong in the same step. A file-disjoint split
+  is invalid when either half leaves the build broken.
 - Native tests are created by a separate stage before implementation. Never
   plan creation or modification of tests, even when the generated test path is
   absent from the repository context.

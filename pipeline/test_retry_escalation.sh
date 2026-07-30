@@ -53,6 +53,8 @@ chmod +x "$WORK/retry-model.sh"
   PIPELINE_DS_COMMAND="$WORK/retry-model.sh" PIPELINE_FAKE_COUNT="$RETRY_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 | tee .pipeline/logs/s1.log
   [[ "$(cat "$RETRY_COUNT")" == 2 ]]
+  grep -Fq -- '--- test output: attempt 1 ---' .pipeline/logs/s1.log
+  grep -Fq 'Expected values to be strictly equal' .pipeline/logs/s1.log
   "$PIPELINE_HOME/pipeline/run_tests.sh" adds_numbers >/dev/null
   "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 'needed more than one attempt'
 )
@@ -79,6 +81,64 @@ chmod +x "$WORK/escalate-model.sh"
   grep -Fq 'exhausted 3 iterations' .pipeline/ESCALATE
   [[ ! -e outside.js ]]
   git diff --quiet
+)
+
+RESUME_REPO="$WORK/resume"
+make_repo "$RESUME_REPO"
+cat > "$RESUME_REPO/multiplier.js" <<'EOF'
+function multiply(left, right) { return 0; }
+module.exports = { multiply };
+EOF
+cat >> "$RESUME_REPO/test/pipeline_generated.test.js" <<'EOF'
+const { multiply } = require('../multiplier');
+test('multiplies_numbers', () => assert.equal(multiply(2, 3), 6));
+EOF
+(
+  cd "$RESUME_REPO"
+  git add multiplier.js test/pipeline_generated.test.js
+  git commit -qm 'add second failing step'
+  git rev-parse HEAD > .pipeline/run_base
+  cat > .pipeline/plan_final.json <<'EOF'
+{"steps":[
+  {"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"},
+  {"id":"s2","description":"fix multiplication","files_allowed":["multiplier.js"],"context_files":[],"tests":["multiplies_numbers"],"deps":[],"done_when":"multiply returns the product"}
+]}
+EOF
+)
+cat > "$WORK/resume-model.sh" <<'EOF'
+#!/usr/bin/env bash
+if grep -q '"id": "s2"' "$2"; then
+  count=0; [[ -f "$PIPELINE_S2_COUNT" ]] && count=$(cat "$PIPELINE_S2_COUNT")
+  printf '%s\n' "$((count + 1))" > "$PIPELINE_S2_COUNT"
+  printf '%s\n' '<<<<<<< FILE multiplier.js' 'function multiply(left, right) { return left * right; }' 'module.exports = { multiply };' '>>>>>>> ENDFILE'
+  exit 0
+fi
+count=0; [[ -f "$PIPELINE_S1_COUNT" ]] && count=$(cat "$PIPELINE_S1_COUNT")
+count=$((count + 1)); printf '%s\n' "$count" > "$PIPELINE_S1_COUNT"
+if ((count <= 3)); then
+  printf '%s\n' '<<<<<<< FILE outside.js' 'bad' '>>>>>>> ENDFILE'
+else
+  printf '%s\n' '<<<<<<< FILE calculator.js' 'function add(left, right) { return left + right; }' 'module.exports = { add };' '>>>>>>> ENDFILE'
+fi
+EOF
+chmod +x "$WORK/resume-model.sh"
+(
+  cd "$RESUME_REPO"
+  rc=0
+  PIPELINE_DS_COMMAND="$WORK/resume-model.sh" PIPELINE_S1_COUNT="$WORK/s1.count" PIPELINE_S2_COUNT="$WORK/s2.count" \
+    "$PIPELINE_HOME/pipeline/waves.sh" >/dev/null 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  [[ "$(cat "$WORK/s1.count")" == 3 ]]
+  [[ "$(cat "$WORK/s2.count")" == 1 ]]
+  jq -e '.steps.s1.status == "escalated" and .steps.s2.status == "done"' .pipeline/done.json >/dev/null
+
+  PIPELINE_DS_COMMAND="$WORK/resume-model.sh" PIPELINE_S1_COUNT="$WORK/s1.count" PIPELINE_S2_COUNT="$WORK/s2.count" \
+    "$PIPELINE_HOME/pipeline/waves.sh" >/dev/null
+  [[ "$(cat "$WORK/s1.count")" == 4 ]]
+  [[ "$(cat "$WORK/s2.count")" == 1 ]]
+  jq -e '.steps.s1.status == "done" and .steps.s1.ever_escalated == true and .steps.s1.attempts == 4' .pipeline/done.json >/dev/null
+  "$PIPELINE_HOME/pipeline/run_tests.sh" >/dev/null
+  "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 's1 escalated during this run'
 )
 
 echo "retry and escalation tests passed"

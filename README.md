@@ -55,6 +55,20 @@ Supported languages are Python, JavaScript, TypeScript, Go, Rust, Java, C#,
 C, and C++. C and C++ use the project's existing native test suite. C# uses
 generated tests when a test project exists and compile-only verification otherwise.
 
+## Repository configuration
+
+Commit `.pipeline-toolchain.json` when automatic detection does not represent the
+real suite. It may override `test_command`, `load_command`, `collect_command`,
+`setup_commands`, `selector_mode`, `generated_tests`, `generated_test_file`, and
+`framework`. For compiled red-to-green tests, make `load_command` build the
+pre-existing suite while omitting projects that intentionally reference the new API.
+
+The model safety scanner rejects writable files containing credential-shaped text.
+For a reviewed false positive, copy the exact hash and path printed by `ctx.sh` into
+the committed `.pipeline-model-allow` file. The approval stops matching if either
+the path or line content changes. `.pipeline-model-exclude` remains the option for
+files that must never be sent to a model.
+
 ## Pipeline tests
 
 On Windows, run the installed-toolchain smoke suite with:

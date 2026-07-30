@@ -19,7 +19,10 @@ trap 'rm -f "$REQ"' EXIT
 # The coder contract is whole-file output, so the budget bounds the largest file the
 # pipeline can rewrite. 8000 truncated mid-file on ordinary sources; 32000 is accepted.
 MAX_TOKENS="${DS_MAX_TOKENS:-32000}"
-jq -n --arg m "$MODEL" --arg s "$(cat "$1")" --arg u "$(cat "$2")" \
+# --rawfile, not --arg "$(cat ...)": command substitution puts the whole prompt on
+# jq's command line, and a context of a few hundred KB exceeds the platform argv
+# limit (32 KB on Windows) with "Argument list too long".
+jq -n --arg m "$MODEL" --rawfile s "$1" --rawfile u "$2" \
   --argjson mt "$MAX_TOKENS" \
   '{model:$m,messages:[{role:"system",content:$s},{role:"user",content:$u}],
     stream:false,max_tokens:$mt,temperature:0}' > "$REQ"

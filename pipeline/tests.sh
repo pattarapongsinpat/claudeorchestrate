@@ -4,6 +4,7 @@ PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f .pipeline/HALT ]] && { echo "halted before tests"; exit 1; }
 CONFIG=.pipeline/toolchain.json
 [[ -f "$CONFIG" ]] || "$PIPELINE_HOME/pipeline/detect.sh"
+bash "$PIPELINE_HOME/pipeline/validate_test_reachability.sh"
 
 if [[ "$(jq -r '.generated_tests' "$CONFIG")" != true ]]; then
   {

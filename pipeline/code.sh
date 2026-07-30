@@ -20,6 +20,12 @@ BASE=$(git rev-parse HEAD)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
+write_status() {
+  local attempts="$1" escalated="$2"
+  jq -n --arg step "$STEP" --argjson attempts "$attempts" --argjson escalated "$escalated" \
+    '{step:$step,attempts:$attempts,escalated:$escalated}' > .pipeline/step_status.json
+}
+
 # tr -d '\r': jq on Windows (and CRLF-checked-out plan files) emits trailing CR,
 # which would make every allowlist and selector comparison silently miss.
 mapfile -t ALLOWED < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.files_allowed[]' "$PLAN" | tr -d '\r')
@@ -39,6 +45,7 @@ if ! bash "$PIPELINE_HOME/pipeline/validate_test_names.sh" "$PLAN" "$STEP" > $WO
   } > .pipeline/ESCALATE
   cat $WORK/test_names.out >&2
   echo "ESCALATE: $STEP has invalid mapped tests" >&2
+  write_status 0 true
   exit 1
 fi
 
@@ -62,6 +69,7 @@ if ! "$PIPELINE_HOME/pipeline/ctx.sh" --writable "${ALLOWED[@]}" > $WORK/allowed
   } > .pipeline/ESCALATE
   cat $WORK/ctx.err >&2
   echo "ESCALATE: $STEP — credential in a file this step may rewrite" >&2
+  write_status 0 true
   exit 1
 fi
 
@@ -72,6 +80,7 @@ for i in 1 2 3; do
   git clean -fdq 2>/dev/null || true   # entry guard guarantees a clean tree, so every untracked file here is this run's
 
   [[ $i -ge 2 ]] && MODEL=deepseek-v4-pro
+  echo "=== attempt $i model=$MODEL ==="
 
   {
     echo "## Step"
@@ -99,10 +108,11 @@ for i in 1 2 3; do
     continue
   elif ((ds_rc)); then
     echo "ds.sh failed for $STEP (exit $ds_rc)" >&2
+    write_status "$i" true
     exit 1
   fi
 
-  grep -qx 'NOOP' $WORK/coder.out && { echo "NOOP $STEP"; exit 0; }
+  grep -qx 'NOOP' $WORK/coder.out && { write_status "$i" false; echo "NOOP $STEP"; exit 0; }
   if [[ ! -s $WORK/coder.out ]] || ! grep -q '^<<<<<<< FILE ' $WORK/coder.out; then
     { echo "NO FILE BLOCKS FOUND."
       echo "For each changed file emit its COMPLETE contents between"
@@ -132,6 +142,7 @@ for i in 1 2 3; do
        continue ;;
     *) echo "apply_files.sh failed for $STEP (exit $rc)" >&2
        cat $WORK/viol.out >&2
+       write_status "$i" true
        exit 1 ;;
   esac
 
@@ -157,9 +168,13 @@ for i in 1 2 3; do
   fi
 
   if run_tests > $WORK/test.out 2>&1; then
+    write_status "$i" false
     echo "PASS $STEP (iteration $i)"
     exit 0
   fi
+  echo "--- test output: attempt $i ---"
+  cat $WORK/test.out
+  echo "--- end test output: attempt $i ---"
   # Blaming the tests when nothing was written sends the model chasing a
   # failure it did not cause, so the two cases get different feedback.
   if [[ -z "$TOUCHED" ]]; then
@@ -185,5 +200,6 @@ git clean -fdq 2>/dev/null || true
   echo "--- last feedback ---"
   cat $WORK/feedback.md 2>/dev/null || true
 } > .pipeline/ESCALATE
+write_status 3 true
 echo "ESCALATE: $STEP exhausted 3 iterations" >&2
 exit 1

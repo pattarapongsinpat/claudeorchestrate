@@ -79,10 +79,33 @@ rc=0
 "$PIPELINE_HOME/pipeline/ctx.sh" --writable sensitive.txt >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 3 ]]
 
+# A reviewed false positive is allowed only while its exact path and line stay
+# unchanged. The approval never contains the source text.
+false_positive='token = File.ReadAllText(_wakeListeningPath).Trim();'
+printf '%s\n' "$false_positive" > reviewed.cs
+reviewed_hash=$(printf '%s' "$false_positive" | sha256sum | cut -d' ' -f1)
+printf '%s  %s\n' "$reviewed_hash" reviewed.cs > .pipeline-model-allow
+reviewed_ctx=$("$PIPELINE_HOME/pipeline/ctx.sh" --writable reviewed.cs)
+[[ "$reviewed_ctx" == *'File.ReadAllText'* ]]
+printf '%s\n' 'token = File.ReadAllText(otherPath).Trim();' > reviewed.cs
+rc=0
+"$PIPELINE_HOME/pipeline/ctx.sh" --writable reviewed.cs >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+
 printf '%s\n' 'not actually inspected' > .env
 rc=0
 "$PIPELINE_HOME/pipeline/ctx.sh" --writable .env >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 3 ]]
+
+# Unsafe intent files halt before plan.sh can invoke a model.
+printf '%s\n' 'api_key="sk-test_123456789012345678901234567890"' > unsafe-plan.txt
+printf '%s\n' '{"allowed_files":["unsafe-plan.txt"]}' > .pipeline/intent.json
+printf '%s\n' '# intent' > .pipeline/intent.md
+rm -f .pipeline-model-allow .pipeline/HALT
+rc=0
+"$PIPELINE_HOME/pipeline/plan.sh" >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 1 ]]
+grep -Fq 'intent-scoped writable file failed' .pipeline/HALT
 
 printf '%s\n' 'excluded.txt' > .pipeline-model-exclude
 printf '%s\n' 'ordinary source' > excluded.txt

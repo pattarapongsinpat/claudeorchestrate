@@ -58,6 +58,39 @@ cat > "$WORK/csharp-metadata/specs/Verification.csproj" <<'EOF'
 EOF
 check_case csharp-metadata csharp dotnet-test
 
+mkdir -p "$WORK/csharp-linked/src" "$WORK/csharp-linked/tests"
+printf 'internal class Reachable {}\n' > "$WORK/csharp-linked/src/Reachable.cs"
+printf 'internal class Missing {}\n' > "$WORK/csharp-linked/src/Missing.cs"
+cat > "$WORK/csharp-linked/tests/Linked.Tests.csproj" <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\src\Reachable.cs" Link="Reachable.cs" />
+  </ItemGroup>
+</Project>
+EOF
+(
+  cd "$WORK/csharp-linked"
+  "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+  jq -e '.test_project_coverage == "explicit-links" and (.linked_source_files | index("src/Reachable.cs") != null)' .pipeline/toolchain.json >/dev/null
+  printf '%s\n' '{"allowed_files":["src/Reachable.cs","src/Missing.cs"]}' > .pipeline/intent.json
+  rc=0
+  "$PIPELINE_HOME/pipeline/validate_test_reachability.sh" >/dev/null 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  grep -Fq 'src/Missing.cs' .pipeline/HALT
+)
+
+mkdir -p "$WORK/override"
+printf '[project]\nname="override"\n' > "$WORK/override/pyproject.toml"
+cat > "$WORK/override/.pipeline-toolchain.json" <<'EOF'
+{"test_command":["custom-suite"],"load_command":["custom-load"],"generated_tests":false,"generated_test_file":"","selector_mode":"none","framework":"custom"}
+EOF
+(
+  cd "$WORK/override"
+  "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+  jq -e '.framework == "custom" and .test_command == ["custom-suite"] and .load_command == ["custom-load"] and (.dependency_files | index(".pipeline-toolchain.json") != null)' .pipeline/toolchain.json >/dev/null
+)
+
 mkdir -p "$WORK/c"
 printf 'cmake_minimum_required(VERSION 3.20)\n' > "$WORK/c/CMakeLists.txt"
 printf 'int demo(void);\n' > "$WORK/c/demo.c"

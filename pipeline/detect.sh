@@ -105,6 +105,26 @@ elif compgen -G '*.sln' >/dev/null || compgen -G '*.slnx' >/dev/null || compgen 
     test_dir=$(dirname "$test_project")
     write_config csharp dotnet-test "$test_dir/PipelineGeneratedTests.cs" dotnet true '[]' \
       "$(printf '%s\n' dotnet test "$test_project" | jq -R . | jq -s .)" '\.cs$' '*.sln' '*.slnx' '*.csproj' Directory.Build.props Directory.Build.targets packages.lock.json
+
+    coverage=unknown
+    linked_json='[]'
+    if rg -qi '<ProjectReference[[:space:]]+Include=' "$test_project"; then
+      coverage=project-reference
+    elif rg -qi '<Compile[[:space:]]+Include="[^"]+"[^>]*Link=' "$test_project"; then
+      coverage=explicit-links
+      linked_json=$(
+        rg -o '<Compile[[:space:]]+Include="[^"]+"' "$test_project" \
+          | sed -E 's/.*Include="([^"]+)"/\1/' | tr '\\' '/' \
+          | while IFS= read -r include; do
+              [[ "$include" != *'*'* && "$include" != *'?'* ]] || continue
+              realpath -m --relative-to="$PWD" "$test_dir/$include" | tr '\\' '/'
+            done | jq -R . | jq -s .
+      )
+    fi
+    tmp=$(mktemp)
+    jq --arg project "$test_project" --arg coverage "$coverage" --argjson linked "$linked_json" \
+      '.test_project = $project | .test_project_coverage = $coverage | .linked_source_files = $linked' \
+      "$OUT" > "$tmp" && mv "$tmp" "$OUT"
   else
     # A small C# change can still be verified safely by compilation. Prefer a
     # solution, then require one unambiguous non-test project outside test dirs.
@@ -195,5 +215,26 @@ esac
 tmp=$(mktemp)
 jq --argjson c "$collect" --argjson l "$load" --argjson t "$timeout_s" \
    '.collect_command = $c | .load_command = $l | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+
+# Repositories with non-standard suites can commit an exact adapter override.
+# This avoids rediscovering custom harness commands on every run and lets the
+# baseline load command omit expectation-bearing compiled projects.
+OVERRIDE=.pipeline-toolchain.json
+if [[ -f "$OVERRIDE" ]]; then
+  jq -e '
+    type == "object" and
+    all(keys[]; IN("test_command", "load_command", "collect_command", "setup_commands",
+                   "selector_mode", "generated_tests", "generated_test_file",
+                   "framework", "test_timeout_seconds", "test_project_coverage",
+                   "linked_source_files")) and
+    ((.test_command // []) | type == "array") and
+    ((.load_command // []) | type == "array") and
+    ((.collect_command // []) | type == "array") and
+    ((.setup_commands // []) | type == "array")
+  ' "$OVERRIDE" >/dev/null || unsupported 'invalid .pipeline-toolchain.json override'
+  tmp=$(mktemp)
+  jq -s '.[0] * .[1] | .dependency_files += [".pipeline-toolchain.json"] | .dependency_files |= unique' \
+    "$OUT" "$OVERRIDE" > "$tmp" && mv "$tmp" "$OUT"
+fi
 
 echo "detected: $(jq -r '.language + " / " + .framework' "$OUT")"

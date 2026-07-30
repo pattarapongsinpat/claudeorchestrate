@@ -22,11 +22,56 @@ if [[ -n "$(git status --porcelain)" ]]; then
   git status --short >&2; exit 1
 fi
 
+STATE=.pipeline/done.json
+if [[ -f .pipeline/run_base ]]; then
+  RUN_BASE=$(tr -d '\r\n' < .pipeline/run_base)
+else
+  RUN_BASE=$(git rev-parse HEAD)
+  printf '%s\n' "$RUN_BASE" > .pipeline/run_base
+fi
+if [[ -f "$STATE" ]]; then
+  jq -e --arg base "$RUN_BASE" '.run_base == $base and (.steps | type == "object")' "$STATE" >/dev/null || {
+    echo "ABORT: $STATE belongs to another run" >&2
+    exit 1
+  }
+else
+  jq -n --arg base "$RUN_BASE" '{run_base:$base,steps:{}}' > "$STATE"
+fi
+
+record_step() {
+  local id="$1" status="$2" attempts="$3" commit="$4" fingerprint tmp
+  fingerprint=$(jq -cS --arg id "$id" '.steps[] | select(.id == $id)' "$PLAN" | sha256sum | cut -d' ' -f1)
+  tmp=$(mktemp)
+  jq --arg id "$id" --arg status "$status" --argjson attempts "$attempts" --arg commit "$commit" --arg fingerprint "$fingerprint" '
+    (.steps[$id] // {}) as $old |
+    .steps[$id] = {
+      status: $status,
+      attempts: (($old.attempts // 0) + $attempts),
+      ever_escalated: (($old.ever_escalated // false) or ($status == "escalated")),
+      commit: (if $commit == "" then ($old.commit // null) else $commit end),
+      fingerprint: $fingerprint
+    }
+  ' "$STATE" > "$tmp" && mv "$tmp" "$STATE"
+}
+
 deps_of(){  jq -r --arg id "$1" '.steps[]|select(.id==$id)|.deps[]?'        "$PLAN" | tr -d '\r'; }
 files_of(){ jq -r --arg id "$1" '.steps[]|select(.id==$id)|.files_allowed[]' "$PLAN" | tr -d '\r'; }
 
-mapfile -t REMAINING < <(jq -r '.steps[].id' "$PLAN" | tr -d '\r')
 declare -A DONE=()
+while IFS=$'\t' read -r id commit fingerprint; do
+  [[ -n "$id" ]] || continue
+  current_fingerprint=$(jq -cS --arg id "$id" '.steps[] | select(.id == $id)' "$PLAN" | sha256sum | cut -d' ' -f1)
+  [[ -n "$commit" && "$fingerprint" == "$current_fingerprint" ]] \
+    && git merge-base --is-ancestor "$commit" HEAD 2>/dev/null || {
+      echo "ABORT: persisted result for $id does not match the current plan or history" >&2
+      exit 1
+    }
+  DONE["$id"]=1
+done < <(jq -r '.steps | to_entries[] | select(.value.status == "done") | [.key, .value.commit, .value.fingerprint] | @tsv' "$STATE" | tr -d '\r')
+REMAINING=()
+while IFS= read -r id; do
+  [[ -n "${DONE[$id]:-}" ]] || REMAINING+=("$id")
+done < <(jq -r '.steps[].id' "$PLAN" | tr -d '\r')
 WORKROOT="$(pwd)/.pipeline/wt"
 
 cleanup_wt(){
@@ -91,8 +136,9 @@ while ((${#REMAINING[@]})); do
     # Copy per-step artifacts out before cleanup_wt deletes the worktree —
     # a WARN raised inside a worktree is otherwise lost, unlike sequential runs.
     cp "$wt"/.pipeline/WARN_* .pipeline/ 2>/dev/null || true
-    mkdir -p .pipeline/logs .pipeline/raw
+    mkdir -p .pipeline/logs .pipeline/raw .pipeline/status
     cp "$wt/.pipeline/code.log" ".pipeline/logs/$s.log" 2>/dev/null || true
+    cp "$wt/.pipeline/step_status.json" ".pipeline/status/$s.json" 2>/dev/null || true
     cp "$wt"/.pipeline/raw/* .pipeline/raw/ 2>/dev/null || true
 
     if ((step_ok)); then
@@ -109,6 +155,8 @@ while ((${#REMAINING[@]})); do
         cat "$wt/.pipeline/ESCALATE" 2>/dev/null ||
           echo "step: $s (no ESCALATE marker; see .pipeline/logs/$s.log)"
       } >> .pipeline/ESCALATE
+      attempts=$(jq -r '.attempts // 0' ".pipeline/status/$s.json" 2>/dev/null || echo 0)
+      record_step "$s" escalated "$attempts" ""
       FAILED["$s"]=1; escalated="$s"; batch_ok=0
     fi
   done
@@ -121,6 +169,8 @@ while ((${#REMAINING[@]})); do
       git cherry-pick "$tip" >/dev/null 2>&1 || { git cherry-pick --abort 2>/dev/null || true; echo "MERGE CONFLICT on $s — steps not disjoint" >&2; exit 1; }
       files_of "$s" >> .pipeline/touched.log
     fi
+    attempts=$(jq -r '.attempts // 0' ".pipeline/status/$s.json" 2>/dev/null || echo 0)
+    record_step "$s" done "$attempts" "$(git rev-parse HEAD)"
     DONE["$s"]=1
   done
 

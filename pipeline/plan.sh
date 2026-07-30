@@ -9,6 +9,19 @@ mapfile -t INTENT_FILES < <(jq -r '.allowed_files[]' .pipeline/intent.json | tr 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
+# Intent already defines every file a coder may rewrite. Reject an unsafe target
+# before paying for planning or creating worktrees.
+if ! "$PIPELINE_HOME/pipeline/ctx.sh" --writable "${INTENT_FILES[@]}" \
+    > "$WORK/intent_ctx.md" 2> "$WORK/intent_ctx.err"; then
+  {
+    echo "an intent-scoped writable file failed the model safety check:"
+    cat "$WORK/intent_ctx.err"
+  } > .pipeline/HALT
+  cat "$WORK/intent_ctx.err" >&2
+  echo "HALT: unsafe writable intent; see .pipeline/HALT" >&2
+  exit 1
+fi
+
 {
   cat .pipeline/intent.md
   echo
@@ -16,7 +29,7 @@ trap 'rm -rf "$WORK"' EXIT
   rg --files | head -200
   echo
   echo "## Files in scope — current contents"
-  "$PIPELINE_HOME/pipeline/ctx.sh" "${INTENT_FILES[@]}"
+  cat "$WORK/intent_ctx.md"
 } > "$WORK/pin.md"
 
 "$PIPELINE_HOME/pipeline/ds.sh" "$PIPELINE_HOME/prompts/planner.txt" "$WORK/pin.md" deepseek-v4-pro > .pipeline/plan.md
