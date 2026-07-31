@@ -121,6 +121,11 @@ while ((${#REMAINING[@]})); do
     mkdir -p "$wt/.pipeline"
     cp "$PLAN" "$wt/.pipeline/plan_final.json"
     cp .pipeline/toolchain.json "$wt/.pipeline/toolchain.json"
+    # Repo-level model safety policy is read relative to the working directory,
+    # so it has to follow the step into its worktree. Untracked by design.
+    for policy in .pipeline-model-allow .pipeline-model-exclude; do
+      if [[ -f "$policy" ]]; then cp "$policy" "$wt/$policy"; fi
+    done
     ( cd "$wt" && "$PIPELINE_HOME/pipeline/code.sh" "$s" > .pipeline/code.log 2>&1 ) &
     PIDS["$s"]=$!
   done

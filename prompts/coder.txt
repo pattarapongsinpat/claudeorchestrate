@@ -16,7 +16,12 @@ Rules for the blocks:
   create: emit a block for it with the complete contents it should have.
 - Close every block with a line that is exactly: >>>>>>> ENDFILE
 - Output nothing outside the blocks: no prose, no explanation, no markdown
-  fences.
+  fences around the blocks themselves. This says nothing about the file's own
+  content: backticks, fences, and every other character inside a file are part
+  of that file and must be reproduced exactly.
+- Reproduce every part of the file you were not asked to change byte for byte,
+  including formatting, blank lines, and markup. Dropping unrelated formatting
+  while rewriting a file is a defect, not a cleanup.
 - If the step is already satisfied, output exactly: NOOP
 
 Modify ONLY files in files_allowed.

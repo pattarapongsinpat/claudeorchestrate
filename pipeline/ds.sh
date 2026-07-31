@@ -17,8 +17,9 @@ RAW=".pipeline/raw/${MODEL}_$(date +%s%N).json"
 REQ=$(mktemp)
 trap 'rm -f "$REQ"' EXIT
 # The coder contract is whole-file output, so the budget bounds the largest file the
-# pipeline can rewrite. 8000 truncated mid-file on ordinary sources; 32000 is accepted.
-MAX_TOKENS="${DS_MAX_TOKENS:-32000}"
+# pipeline can rewrite. 8000 truncated mid-file on ordinary sources; 32000 truncated
+# on a 3000-line source, so the budget is 64000.
+MAX_TOKENS="${DS_MAX_TOKENS:-64000}"
 # --rawfile, not --arg "$(cat ...)": command substitution puts the whole prompt on
 # jq's command line, and a context of a few hundred KB exceeds the platform argv
 # limit (32 KB on Windows) with "Argument list too long".
@@ -30,7 +31,7 @@ jq -n --arg m "$MODEL" --rawfile s "$1" --rawfile u "$2" \
 # Retry 429 and 5xx with backoff. Without this a single transient error kills
 # the whole step (and, in waves, the run) with curl's raw exit code.
 rc=0
-curl -sS --fail-with-body --max-time 300 \
+curl -sS --fail-with-body --max-time "${DS_MAX_TIME:-1200}" \
     --retry 4 --retry-delay 2 --retry-max-time 240 --retry-connrefused \
     https://api.deepseek.com/chat/completions \
     -H "Content-Type: application/json" \

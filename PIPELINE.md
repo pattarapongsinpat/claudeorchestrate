@@ -90,8 +90,16 @@ toolchains write `.pipeline/HALT` with the reason.
   a match is fatal. Binary and secret-bearing writable paths are also fatal.
   Add exact repository-relative paths to `.pipeline-model-exclude` to withhold
   complete files from every model. Excluded files cannot be writable steps.
+  Clear a reviewed false positive per line, not per file: put
+  `<sha256-of-the-line>  <repo-relative-path>` in `.pipeline-model-allow`, using
+  the hash the refusal prints. `waves.sh` copies both files into every step
+  worktree, so one recorded approval also holds for parallel steps.
 - Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
   infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
+- Bound the coder by output budget, not by hope: `DS_MAX_TOKENS` (default 64000)
+  and `DS_MAX_TIME` (default 1200s) in `ds.sh`. The contract is whole-file
+  output, so the budget is the largest file the pipeline can rewrite. Sources
+  around 3000 lines sit at that ceiling and should be expected to escalate.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
 - Preserve partial commits on drift or escalation for inspection.
 
