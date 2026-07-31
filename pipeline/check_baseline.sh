@@ -67,7 +67,37 @@ fi
 
 if [[ "$verification_mode" == judgment ]]; then
   echo "mechanical baseline red — proceeding so the requested change may repair it"
-else
-  echo "baseline red — proceeding"
+  tail -5 .pipeline/baseline.out
+  exit 0
 fi
+
+# Red is not one state. A mapped assertion that does not hold yet is the whole
+# point of the baseline; a generated test file that cannot execute is a defect in
+# the test, and no implementation can satisfy it. Both exit non-zero and are
+# indistinguishable from the exit code alone, so the run proceeds into three doomed
+# coder attempts and reports "the code is wrong" about a broken fixture.
+#
+# These patterns mean the test file itself is broken:
+#   ReferenceError / NameError  a helper or fixture used outside the scope it was declared in
+#   SyntaxError / IndentationError / Unexpected token   the file does not parse
+# A missing module is deliberately NOT here: the implementation has yet to create it,
+# which is the expected shape of a red baseline.
+BROKEN_PATTERNS='ReferenceError:|SyntaxError|IndentationError|Unexpected token|NameError: name'
+if [[ "$generated" == true && -z "${PIPELINE_ALLOW_BROKEN_TESTS:-}" ]]; then
+  if broken=$(grep -nE "$BROKEN_PATTERNS" .pipeline/baseline.out | head -20); then
+    { echo "the generated tests do not execute, so no step can ever pass:"
+      echo
+      echo "$broken"
+      echo
+      echo "This is a defect in $test_file, not in the implementation. Fix the test file"
+      echo "at the gate, then re-run check_baseline. Set PIPELINE_ALLOW_BROKEN_TESTS=1 to"
+      echo "override when the pattern is a false positive, such as a test that asserts on"
+      echo "an error message containing one of these words."
+    } > .pipeline/HALT
+    echo "HALT: generated tests fail to execute; see .pipeline/HALT" >&2
+    exit 1
+  fi
+fi
+
+echo "baseline red — proceeding"
 tail -5 .pipeline/baseline.out

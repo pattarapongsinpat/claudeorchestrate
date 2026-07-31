@@ -73,6 +73,25 @@ if ! "$PIPELINE_HOME/pipeline/ctx.sh" --writable "${ALLOWED[@]}" > $WORK/allowed
   exit 1
 fi
 
+# Built once, outside the retry loop: the index describes the repository, which no
+# attempt changes. A failure here is not worth stopping the step over — the coder
+# simply loses the duplication hint.
+"$PIPELINE_HOME/pipeline/symbol_index.sh" > $WORK/symbols.md 2>/dev/null || : > $WORK/symbols.md
+
+# Fingerprint of a failing test run, used to detect a test the code cannot satisfy.
+# Volatile detail is stripped so two runs of the same real failure hash alike:
+# durations and timestamps, and the digit/hex runs inside generated ids — the case
+# that motivated this was two attempts differing only in a random branch id.
+failure_signature() {
+  sed -E \
+      -e '/Duration|Start at|RUN |Test Files|^[[:space:]]*$/d' \
+      -e 's/[0-9a-f]{6,}//g' \
+      -e 's/[0-9]+//g' \
+      -e 's/[[:space:]]+/ /g' \
+    "$1" | sort -u | sha256sum | cut -d' ' -f1
+}
+PREVIOUS_SIGNATURE=""
+
 MODEL=deepseek-v4-flash
 TRUNCATED=0
 for i in 1 2 3; do
@@ -91,6 +110,13 @@ for i in 1 2 3; do
     echo
     echo "## Read-only context — do NOT modify these"
     "$PIPELINE_HOME/pipeline/ctx.sh" "${CONTEXT_FILES[@]}"
+    echo
+    echo "## Repository symbol index — names and signatures only"
+    echo
+    echo "These already exist elsewhere in the repository. Call them rather than"
+    echo "writing a second implementation. You may not edit these files in this step;"
+    echo "if the helper you need lives in one of them, use it via its module."
+    cat $WORK/symbols.md
   } > $WORK/step.md
   [[ -f $WORK/feedback.md ]] && cat $WORK/feedback.md >> $WORK/step.md
 
@@ -183,6 +209,30 @@ for i in 1 2 3; do
   echo "--- test output: attempt $i ---"
   cat $WORK/test.out
   echo "--- end test output: attempt $i ---"
+
+  # Two different models, two different rewrites of the file, and byte-identical
+  # failures: the evidence points at the test, not at the code. Attempt 1 runs on
+  # flash and attempt 2 on pro, so a repeat here is already a cross-model result.
+  # Spending the third call reproduces it a third time and still reports "the coder
+  # failed", which sends a human to read the wrong file.
+  SIGNATURE=$(failure_signature $WORK/test.out)
+  if [[ -n "$TOUCHED" && "$SIGNATURE" == "$PREVIOUS_SIGNATURE" ]]; then
+    git checkout "$BASE" -- .
+    git clean -fdq 2>/dev/null || true
+    { echo "step: $STEP"
+      echo "identical failure after $i attempts across two models — suspect the test, not the code"
+      echo "mapped tests: ${TEST_NAMES[*]}"
+      echo "Check the assertion before re-running: it may encode something the"
+      echo "implementation cannot satisfy, such as an ordering the storage engine does"
+      echo "not guarantee, or a value fixed by a random id."
+      echo "--- last test output ---"
+      tail -40 $WORK/test.out
+    } > .pipeline/ESCALATE
+    write_status "$i" true
+    echo "ESCALATE: $STEP produced the same failure twice — suspect the mapped test" >&2
+    exit 1
+  fi
+  PREVIOUS_SIGNATURE="$SIGNATURE"
   # Blaming the tests when nothing was written sends the model chasing a
   # failure it did not cause, so the two cases get different feedback.
   if [[ -z "$TOUCHED" ]]; then

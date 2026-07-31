@@ -41,6 +41,12 @@ fi
 printf '%s\n' "$$" > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
+# .pipeline/ESCALATE is appended to within a run so two failures in one wave both
+# survive. Across runs that is wrong: a marker from the previous attempt makes a
+# fixed step look like it is still failing, and the report names a step that
+# already passed. This run owns the file from here.
+rm -f .pipeline/ESCALATE
+
 STATE=.pipeline/done.json
 if [[ -f .pipeline/run_base ]]; then
   RUN_BASE=$(tr -d '\r\n' < .pipeline/run_base)

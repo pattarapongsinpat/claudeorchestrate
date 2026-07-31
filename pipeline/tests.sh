@@ -92,14 +92,6 @@ trap 'rm -rf "$WORK"' EXIT
 language=$(jq -r '.language' "$CONFIG" | tr -d '\r')
 test_file=$(jq -r '.generated_test_file' "$CONFIG" | tr -d '\r')
 
-case "$language" in
-  python) declaration='^(async[[:space:]]+def|def|class)[[:space:]]' ;;
-  javascript|typescript) declaration='(^|[[:space:]])(export[[:space:]]+)?(async[[:space:]]+)?(function|class|interface|type|const)[[:space:]]' ;;
-  go) declaration='^(func|type|const|var)[[:space:]]' ;;
-  rust) declaration='^(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?(fn|struct|enum|trait|type|const)[[:space:]]' ;;
-  java|csharp) declaration='^[[:space:]]*(public|protected)[[:space:]].*(class|interface|enum|record|\()' ;;
-  *) declaration='^[[:space:]]*([A-Za-z_][A-Za-z0-9_:<>*&[:space:]]+)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' ;;
-esac
 
 {
   cat .pipeline/intent.md
@@ -138,9 +130,7 @@ esac
   fi
   echo
   echo "## Existing public interfaces"
-  while IFS= read -r file; do
-    rg --with-filename --no-heading -n "$declaration" "$file" || true
-  done < <(rg --files | grep -E "$(jq -r '.source_regex' "$CONFIG")" | head -150)
+  "$PIPELINE_HOME/pipeline/symbol_index.sh"
 } > "$WORK/test-input.md"
 
 safe_repo_path "$test_file" || { echo "unsafe generated-test path: $test_file" >&2; exit 1; }
@@ -154,4 +144,5 @@ mkdir -p "$(dirname "$test_file")"
   | tee .pipeline/tests_spec.md > "$test_file"
 
 [[ -s "$test_file" ]] || { echo "generated test file is empty: $test_file" >&2; exit 1; }
+"$PIPELINE_HOME/pipeline/normalize_test_names.sh" "$test_file" "$language"
 echo "generated native tests: $test_file"

@@ -65,7 +65,10 @@ toolchains write `.pipeline/HALT` with the reason.
 3. DeepSeek creates the plan and native tests independently. If Opus recorded
    that behavioral tests are impossible in the available environment, the test
    stage records the reason and keeps only the detected mechanical check.
-4. `pipeline/run_tests.sh` establishes the pre-implementation baseline.
+4. `pipeline/check_baseline.sh` establishes the pre-implementation baseline and
+   classifies it. Red because an assertion does not hold yet is the point. Red
+   because the generated tests cannot execute is a defect in the tests, and it
+   HALTs instead of spending three coder attempts on an unwinnable step.
 5. Claude gates the plan, maps exact native test names to steps, and corrects test signature drift.
 6. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
 7. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
@@ -96,6 +99,35 @@ toolchains write `.pipeline/HALT` with the reason.
   worktree, so one recorded approval also holds for parallel steps.
 - Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
   infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
+- Do not charge a bad test to the coder. Three separate guards, because the
+  failure looks identical from the exit code in every case:
+  `check_baseline.sh` HALTs when the generated tests raise `ReferenceError`,
+  `NameError`, `SyntaxError`, `IndentationError`, or `Unexpected token`, which
+  mean the file does not execute rather than that the feature is missing — a
+  helper declared inside one `describe` and used from four others fails this way
+  no matter what the implementation does. `PIPELINE_ALLOW_BROKEN_TESTS=1`
+  overrides for a test that legitimately asserts on those words. `code.sh` stops
+  after two attempts when the failure signature repeats, since attempt 1 runs on
+  flash and attempt 2 on pro, so an identical failure is already a cross-model
+  result and the third call only reproduces it; the marker says to suspect the
+  test. The signature strips digits and hex runs, so a random id in the message
+  does not disguise a repeat.
+- Give the coder a repository symbol index. `symbol_index.sh` lists declarations
+  from non-test sources as `path:line: declaration`, and `code.sh` includes it in
+  every step. A step sees only its allowlist and its context files, so without
+  this it reimplements helpers that already exist elsewhere — duplication no
+  single diff reveals and review catches late, if at all.
+- Normalize generated test titles to identifiers in `tests.sh`. The tester writes
+  prose, `validate_test_names.sh` requires `^[A-Za-z_][A-Za-z0-9_]*$`, and the
+  runner selectors build one regex from the mapped names, where a space or colon
+  matches wrongly. Colliding titles get a numeric suffix so no two tests share a
+  selector.
+- Scope the generated test path to the run. `run.sh` inserts a timestamp, so a
+  second run never collides with the previous run's tests, which are now part of
+  the suite. `tests.sh` still refuses to overwrite an existing path.
+- Clear `.pipeline/ESCALATE` at the start of `waves.sh`. It is appended to within
+  a run so parallel failures both survive; across runs a stale marker reports a
+  step that has since passed.
 - Bound the coder by output budget, not by hope: `DS_MAX_TOKENS` (default 131072)
   and `DS_MAX_TIME` (default 1200s) in `ds.sh`. The contract is whole-file
   output, so the budget must cover the largest file the pipeline can rewrite —
@@ -157,6 +189,12 @@ in parallel worktrees, cherry-picks both commits, and runs the complete suite.
 
 `pipeline/test_retry_escalation.sh` deterministically exercises a successful
 second attempt, review triggering, scope rejection, and three-attempt escalation.
+
+`pipeline/test_hardening.sh` covers the bad-test guards without the API: title
+normalization and collision suffixing, HALT on a test file that cannot execute
+against no HALT on an ordinary failing assertion, early escalation on a repeated
+failure signature against a full three attempts when the failure changes, the
+symbol index, and the run-scoped generated test path.
 `pipeline/test_verify.sh` checks ACCEPT, DRIFT, and malformed verifier outputs.
 
 `pipeline/test_e2e_compiled.sh <java|csharp|c|cpp>` runs a real DeepSeek coding
