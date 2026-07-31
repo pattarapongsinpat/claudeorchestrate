@@ -18,8 +18,12 @@ REQ=$(mktemp)
 trap 'rm -f "$REQ"' EXIT
 # The coder contract is whole-file output, so the budget bounds the largest file the
 # pipeline can rewrite. 8000 truncated mid-file on ordinary sources; 32000 truncated
-# on a 3000-line source, so the budget is 64000.
-MAX_TOKENS="${DS_MAX_TOKENS:-64000}"
+# on a 3000-line source. 64000 then proved too small for a different reason: reasoning
+# models spend the SAME budget on reasoning_content, and a dense spec produced ~276K
+# characters of reasoning with empty content, tripping the truncation exit before the
+# retry that would have escalated to the stronger model. The budget must cover
+# reasoning plus the file, so it is 131072. The API accepts it.
+MAX_TOKENS="${DS_MAX_TOKENS:-131072}"
 # --rawfile, not --arg "$(cat ...)": command substitution puts the whole prompt on
 # jq's command line, and a context of a few hundred KB exceeds the platform argv
 # limit (32 KB on Windows) with "Argument list too long".
@@ -54,5 +58,18 @@ jq -r '.choices[0].message.content // "" | select(length>0)
 FIN=$(jq -r '.choices[0].finish_reason // "?"' "$RAW")
 if [[ "$FIN" == "length" ]]; then
   echo "truncated at max_tokens=$MAX_TOKENS (model $MODEL): $RAW" >&2
+  # Distinguish the two causes. "File too large" wants the step split; "reasoning ran
+  # away" wants a bigger budget or a sharper step description, and splitting will not
+  # help. Reporting only the first sends the operator down the wrong path.
+  content_len=$(jq -r '(.choices[0].message.content // "") | length' "$RAW")
+  reasoning_len=$(jq -r '(.choices[0].message.reasoning_content // "") | length' "$RAW")
+  echo "  content=${content_len} chars, reasoning=${reasoning_len} chars" >&2
+  if ((content_len == 0 && reasoning_len > 0)); then
+    echo "  cause: the model spent the whole budget reasoning and emitted no file." >&2
+    echo "  Splitting the step will NOT help. Raise DS_MAX_TOKENS (currently $MAX_TOKENS)," >&2
+    echo "  or make the step description more concrete so it has less to deliberate over." >&2
+  else
+    echo "  cause: the file itself exceeded the budget. Split the step or narrow files_allowed." >&2
+  fi
   exit 4
 fi

@@ -96,10 +96,32 @@ toolchains write `.pipeline/HALT` with the reason.
   worktree, so one recorded approval also holds for parallel steps.
 - Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
   infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
-- Bound the coder by output budget, not by hope: `DS_MAX_TOKENS` (default 64000)
+- Bound the coder by output budget, not by hope: `DS_MAX_TOKENS` (default 131072)
   and `DS_MAX_TIME` (default 1200s) in `ds.sh`. The contract is whole-file
-  output, so the budget is the largest file the pipeline can rewrite. Sources
-  around 3000 lines sit at that ceiling and should be expected to escalate.
+  output, so the budget must cover the largest file the pipeline can rewrite —
+  and, on reasoning models, the reasoning that precedes it. A dense step once
+  produced 276K characters of `reasoning_content` with empty `content` and hit
+  the old 64000 ceiling, aborting before the retry that escalates to the stronger
+  model. On truncation `ds.sh` now reports content and reasoning lengths and
+  names the cause, because "split the step" is the wrong fix for a runaway
+  reasoning trace.
+- Give the tester the specification. `tests.sh` includes every path in
+  `spec_files` from `intent.json`; absent that, it falls back to tracked markdown
+  paths referenced from `intent.md`. Without this the tester only sees the
+  contents of `allowed_files`, which are the files the run has yet to create, so
+  it invents the domain and emits tests that assert wrong field names and
+  unsatisfiable values. Declare `spec_files` whenever a behavioral spec exists.
+- Never leave a step's `tests` array empty in generated-tests mode.
+  `validate_plan.sh` rejects it. An empty array does not mean "unverified", it
+  means "run the whole suite", so the step is graded against tests for files it
+  may not write and can never pass. Merge a step that has nothing to assert into
+  the step that consumes it.
+- Run one `waves` process at a time. `waves.sh` takes an atomic `mkdir` lock at
+  `.pipeline/waves.lock` and refuses to start while a live holder exists, clearing
+  the lock only when its pid is gone. Concurrent runners share `.pipeline/wt/` and
+  `done.json`, delete each other's worktrees mid-step, and mark each other's
+  completed steps as escalated; the symptom is a missing `code.log`, which reads
+  like an API failure rather than a collision.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
 - Preserve partial commits on drift or escalation for inspection.
 

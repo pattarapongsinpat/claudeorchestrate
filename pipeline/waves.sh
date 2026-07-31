@@ -22,6 +22,25 @@ if [[ -n "$(git status --porcelain)" ]]; then
   git status --short >&2; exit 1
 fi
 
+# Single-runner lock. Two concurrent waves runs share .pipeline/wt/ and done.json:
+# they delete each other's worktrees mid-step, which surfaces as a missing code.log
+# rather than as a collision, and they mark each other's completed steps as escalated.
+# mkdir is atomic, so it is the lock primitive.
+LOCK=.pipeline/waves.lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder=$(cat "$LOCK/pid" 2>/dev/null || echo unknown)
+  if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+    echo "ABORT: another waves run is already active (pid $holder)." >&2
+    echo "Wait for it to exit rather than starting a second runner." >&2
+    exit 1
+  fi
+  echo "note: clearing stale waves lock left by pid $holder" >&2
+  rm -rf "$LOCK"
+  mkdir "$LOCK" || { echo "ABORT: cannot acquire waves lock" >&2; exit 1; }
+fi
+printf '%s\n' "$$" > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+
 STATE=.pipeline/done.json
 if [[ -f .pipeline/run_base ]]; then
   RUN_BASE=$(tr -d '\r\n' < .pipeline/run_base)

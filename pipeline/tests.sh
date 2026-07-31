@@ -46,6 +46,31 @@ fi
 
 bash "$PIPELINE_HOME/pipeline/validate_test_reachability.sh"
 
+# Specification context. The tester is given the contents of allowed_files, but those
+# are the paths the implementation will CREATE, so they are usually absent. Without the
+# behavioral spec the tester guesses the domain and produces tests that assert invented
+# field names and unsatisfiable values. Declare spec_files in intent.json; failing that,
+# fall back to markdown paths referenced from intent.md that actually exist and are tracked.
+spec_file_list() {
+  local -a declared=()
+  mapfile -t declared < <(
+    jq -r '(.spec_files // [])[]' .pipeline/intent.json 2>/dev/null | tr -d '\r'
+  )
+  if ((${#declared[@]})); then
+    printf '%s\n' "${declared[@]}"
+    return
+  fi
+  { grep -oE '[A-Za-z0-9_./-]+\.md' .pipeline/intent.md 2>/dev/null || true; } \
+    | sed 's#^\./##' | sort -u | while IFS= read -r candidate; do
+      [[ -n "$candidate" ]] || continue
+      [[ "$candidate" == .pipeline/* ]] && continue
+      safe_repo_path "$candidate" 2>/dev/null || continue
+      has_symlink_component "$candidate" && continue
+      git ls-files --error-unmatch -- "$candidate" >/dev/null 2>&1 || continue
+      printf '%s\n' "$candidate"
+    done
+}
+
 if [[ "$(jq -r '.generated_tests' "$CONFIG")" != true ]]; then
   {
     echo "# Existing-suite mode"
@@ -85,7 +110,23 @@ esac
   echo "## Repository files"
   rg --files | head -200
   echo
+  echo "## Specification documents"
+  echo
+  echo "These define the required behavior. Where they conflict with your own assumptions"
+  echo "they win. Do not invent field names, call signatures, or rules that contradict them."
+  echo "If this section is empty, say so in a comment rather than guessing at the domain."
+  echo
+  mapfile -t spec_files < <(spec_file_list)
+  if ((${#spec_files[@]})); then
+    "$PIPELINE_HOME/pipeline/ctx.sh" "${spec_files[@]}"
+  else
+    echo "(none found; declare \"spec_files\" in .pipeline/intent.json)"
+  fi
+  echo
   echo "## Intent-scoped source contents"
+  echo
+  echo "NOTE: these are the paths the implementation will WRITE. Most are absent or empty"
+  echo "right now, which is expected and is not a reason to infer behavior from them."
   mapfile -t intent_files < <(jq -r '.allowed_files[]' .pipeline/intent.json | tr -d '\r')
   "$PIPELINE_HOME/pipeline/ctx.sh" "${intent_files[@]}"
   echo

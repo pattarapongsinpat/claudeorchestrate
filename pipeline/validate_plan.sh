@@ -32,6 +32,27 @@ jq -e '
     (([$step.files_allowed[]] - [$step.context_files[]] | length) == ($step.files_allowed | length)))
 ' "$PLAN" >/dev/null || { echo "duplicate or overlapping plan entries" >&2; exit 1; }
 
+# An empty tests array does not mean "unverified", it means "run the entire suite", so
+# the step is graded against tests for code it is forbidden to write and can never pass.
+# This is only legal in existing-suite and judgment modes, where running everything is
+# the intended behavior. In generated-tests mode it is always an authoring mistake.
+CONFIG="$(dirname "$PLAN")/toolchain.json"
+if [[ -f "$CONFIG" ]] \
+  && [[ "$(jq -r '.generated_tests // false' "$CONFIG" | tr -d '\r')" == true ]] \
+  && [[ "$(jq -r '.verification_mode // "tests"' "$CONFIG" | tr -d '\r')" == tests ]]; then
+  mapfile -t UNMAPPED < <(jq -r '.steps[] | select(((.tests // []) | length) == 0) | .id' "$PLAN" | tr -d '\r')
+  if ((${#UNMAPPED[@]})); then
+    {
+      echo "steps with no mapped tests in generated-tests mode: ${UNMAPPED[*]}"
+      echo "An empty tests array runs the WHOLE suite for that step, so it is graded on"
+      echo "tests for files it may not write and will always escalate. Map each step to the"
+      echo "exact test names that verify its done_when. A step with genuinely nothing to"
+      echo "assert should be merged into the step that consumes it."
+    } >&2
+    exit 1
+  fi
+fi
+
 mapfile -t IDS < <(jq -r '.steps[].id' "$PLAN" | tr -d '\r')
 declare -A SEEN=()
 for id in "${IDS[@]}"; do
