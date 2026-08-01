@@ -55,6 +55,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | Native tests | `deepseek-v4-pro`, unless Opus selects the judgment fallback |
 | Plan gate | Claude Opus session |
 | Code steps | `deepseek-v4-flash`, then `deepseek-v4-pro` on retries |
+| Escalated step repair | Claude Opus session |
 | Review | Claude Opus session when triggered or required by the judgment fallback |
 | Final request check | Claude Opus session |
 
@@ -68,7 +69,7 @@ toolchains write `.pipeline/HALT` with the reason.
 4. `pipeline/check_baseline.sh` establishes the pre-implementation baseline and
    classifies it. Red because an assertion does not hold yet is the point. Red
    because the generated tests cannot execute is a defect in the tests, and it
-   HALTs instead of spending three coder attempts on an unwinnable step.
+   HALTs instead of spending coder attempts on an unwinnable step.
 5. Claude gates the plan, maps exact native test names to steps, and corrects test signature drift.
 6. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
 7. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
@@ -76,8 +77,9 @@ toolchains write `.pipeline/HALT` with the reason.
    after every implementation attempt.
 9. `pipeline/final_check.sh` runs the whole suite, or the fallback mechanical
    command. In test mode, regressions in untargeted tests surface only here.
-10. On a step's ESCALATE, the Opus session repairs that one step itself, then
-    `waves.sh` resumes the steps the stall blocked. Two repairs per run maximum.
+10. On a step's ESCALATE, the Opus session repairs that one step, then `waves.sh`
+    resumes the steps the stall blocked. When the mapped test is what is wrong,
+    `restart_run.sh` regenerates instead and the workflow resumes from step 3.
 11. Opus review is mandatory for judgment-fallback runs and for repaired runs.
 12. A fresh Claude subagent receives only the original request and final diff,
     then returns the ACCEPT or DRIFT verdict.
@@ -85,231 +87,158 @@ toolchains write `.pipeline/HALT` with the reason.
 
 ## Safety invariants
 
-- Preserve the user's request verbatim in `.pipeline/request.txt`.
-- Stop on low intent confidence.
-- Keep tests independent from the generated plan.
-- Treat `.pipeline/intent.json` `allowed_files` as authoritative.
-- Prevent implementation steps from modifying tests or dependency manifests.
-- Redact credentials from model context by path AND by content. In a read-only
-  context the matching lines are redacted; for a file the step may rewrite,
-  a match is fatal. Binary and secret-bearing writable paths are also fatal.
-  Add exact repository-relative paths to `.pipeline-model-exclude` to withhold
-  complete files from every model. Excluded files cannot be writable steps.
-  Clear a reviewed false positive per line, not per file: put
-  `<sha256-of-the-line>  <repo-relative-path>` in `.pipeline-model-allow`, using
-  the hash the refusal prints. `waves.sh` copies both files into every step
-  worktree, so one recorded approval also holds for parallel steps.
-- Bound every test invocation with `test_timeout_seconds`, so a coder-introduced
-  infinite loop cannot hang a run. `PIPELINE_TEST_TIMEOUT` overrides.
-- Do not charge a bad test to the coder. Three separate guards, because the
-  failure looks identical from the exit code in every case:
-  `check_baseline.sh` HALTs when the generated tests raise `ReferenceError`,
-  `NameError`, `SyntaxError`, `IndentationError`, or `Unexpected token`, which
-  mean the file does not execute rather than that the feature is missing — a
-  helper declared inside one `describe` and used from four others fails this way
-  no matter what the implementation does. `PIPELINE_ALLOW_BROKEN_TESTS=1`
-  overrides for a test that legitimately asserts on those words. `code.sh` stops
-  after two attempts when the failure signature repeats, since attempt 1 runs on
-  flash and attempt 2 on pro, so an identical failure is already a cross-model
-  result and the third call only reproduces it; the marker says to suspect the
-  test. The signature strips digits and hex runs, so a random id in the message
-  does not disguise a repeat.
-- Cap coder calls per step at `PIPELINE_MAX_ATTEMPTS`, default 3, valid values 1
-  to 3. A DeepSeek retry is far cheaper than the Opus turn it avoids, so an
-  attempt-2 pass on pro costs a fraction of the repair it replaces. This was
-  briefly 1, on the reasoning that the extra attempts were wasted whenever the
-  step was unwinnable — true while an escalation ended the run and a human picked
-  it up, and no longer true now that Opus repairs a step the coder got wrong and
-  `restart_run.sh` regenerates tests that were wrong. The ladder is indexed by
-  attempt, not by the cap: attempt 1 on flash, attempts 2 and 3 on pro, so
-  lowering the cap truncates it rather than reassigning models. A value outside
-  1-3 is a configuration error and stops the step. The repeated-signature guard
-  below still cuts the ladder short when another sample will not help.
-- Repair an escalated step in the main Opus session, and grade that repair with a
-  script. The session already holds the request, the intent, and the plan, so a
-  subagent would pay for that context again to know less. But it is also the
-  session that decided to repair, so it does not get to grade itself:
-  `repair_done.sh` re-checks the allowlist, the dependency manifests, the test
-  files, and the step's own mapped tests against the working tree, and only then
-  commits and marks the step done. It refuses rather than negotiating, and it
-  never lets the session edit `done.json` directly, since a hand-written `done`
-  entry makes `waves.sh` skip a step that was never implemented. `ever_escalated`
-  survives the repair, so `review_trigger.sh` still demands the Opus review and
-  the isolated verify subagent still gives the one independent verdict.
-- Restart the run when the tests are what failed; never edit them to fit. The
-  cheap way to make a test pass is to change what it asserts, so `restart_run.sh`
-  regenerates instead: it resets to the run base, tags the abandoned commits,
-  archives the failing tests and the reason under `.pipeline/attempt-N`, and
-  clears the plan and the tests while keeping the request and the intent, which
-  did not change. The tester then runs again from the request and the spec,
-  independently of the plan and of whatever the last attempt wrote, so a bad
-  assertion is redrawn rather than bent. One restart per request
-  (`PIPELINE_MAX_RESTARTS`): a second bad test set points at the spec or the
-  intent, and regenerating again will not find that. The new test path is stamped
-  from a freshly detected toolchain, because restamping the current one appends to
-  the previous stamp and every restart lengthens the name.
-- Put the mapped test source in the repair brief. The coder never sees the test
-  file, so it can fail a step for a reason no rewrite fixes: an exact error string
-  it had to guess, a field name stated nowhere else. Opus can read that file, and
-  that asymmetry is most of what the repair stage is for, so `repair_ctx.sh` hands
-  it over instead of making the repair go looking. Oversized files fall back to
-  the mapped tests with 25 lines of context, because the declaration line without
-  its assertion answers nothing. The file stays read-only; `repair_done.sh`
-  refuses a repair that edits its own grader.
-- Enforce the repair budget in `repair_done.sh`, not in the instructions.
-  `PIPELINE_MAX_REPAIRS`, default 2, counts `repaired_by_opus` entries in
-  `done.json` and refuses beyond it. Left as prose the stage quietly becomes
-  "Opus writes everything": the verify subagent sees only the request and the
-  final diff, so a run repaired end to end is indistinguishable from one DeepSeek
-  produced, and the cost the stage exists to bound goes unmeasured. Two failures
-  are a bad step; three are a bad plan or a bad generated test.
-- Let `repair_ctx.sh` write `.claude/routing-ack` and exclude it locally. The
-  routing gate resolves that path against the working directory, which during a
-  run is the project rather than the runtime, so a hand-written ack lands in the
-  project, dirties the tree `waves.sh` refuses to start on, and reads to
-  `repair_done.sh` as a file outside the step allowlist. `repair_done.sh` skips
-  that one exact path and no other part of `.claude/`.
-- Release the waves lock in the same trap that removes the worktrees. `waves.sh`
-  sets an EXIT trap for the lock and then replaced it with the worktree cleanup,
-  so every run ended still holding its own lock. It self-healed only because the
-  next run found the recorded pid dead; a reused pid turns that into a clean
-  repository refusing to start with "another waves run is already active".
-- Give the coder a repository symbol index. `symbol_index.sh` lists declarations
-  from non-test sources as `path:line: declaration`, and `code.sh` includes it in
-  every step. A step sees only its allowlist and its context files, so without
-  this it reimplements helpers that already exist elsewhere — duplication no
-  single diff reveals and review catches late, if at all.
-- Normalize generated test titles to identifiers in `tests.sh`. The tester writes
-  prose, `validate_test_names.sh` requires `^[A-Za-z_][A-Za-z0-9_]*$`, and the
-  runner selectors build one regex from the mapped names, where a space or colon
-  matches wrongly. Colliding titles get a numeric suffix so no two tests share a
-  selector.
-- Scope the generated test path to the run. `run.sh` inserts a timestamp, so a
-  second run never collides with the previous run's tests, which are now part of
-  the suite. `tests.sh` still refuses to overwrite an existing path.
-- Clear `.pipeline/ESCALATE` at the start of `waves.sh`. It is appended to within
-  a run so parallel failures both survive; across runs a stale marker reports a
-  step that has since passed.
-- Bound the coder by output budget, not by hope: `DS_MAX_TOKENS` (default 131072)
-  and `DS_MAX_TIME` (default 1200s) in `ds.sh`. The contract is whole-file
-  output, so the budget must cover the largest file the pipeline can rewrite —
-  and, on reasoning models, the reasoning that precedes it. A dense step once
-  produced 276K characters of `reasoning_content` with empty `content` and hit
-  the old 64000 ceiling, aborting before the retry that escalates to the stronger
-  model. On truncation `ds.sh` now reports content and reasoning lengths and
-  names the cause, because "split the step" is the wrong fix for a runaway
-  reasoning trace.
-- Parse the coder's file blocks by keyword, not by exact delimiter width.
-  `apply_files.sh` accepts a 4-12 character marker run and unwraps a single
-  Markdown fence around the body. A model that emitted six `<` instead of seven
-  once produced a complete, correct 500-line file that parsed as zero blocks:
-  nothing was written, the step consumed all three attempts, and the feedback
-  said NO FILE BLOCKS FOUND, which reads like a coding failure rather than a
-  formatting slip. `FILE` and `ENDFILE` are what identify a marker, so an exact
-  run length bought no safety. Content that only resembles a marker, such as a
-  `<<<<<<< HEAD` conflict sample, is still body text.
-- Give the tester the specification. `tests.sh` includes every path in
-  `spec_files` from `intent.json`; absent that, it falls back to tracked markdown
-  paths referenced from `intent.md`. Without this the tester only sees the
-  contents of `allowed_files`, which are the files the run has yet to create, so
-  it invents the domain and emits tests that assert wrong field names and
-  unsatisfiable values. Declare `spec_files` whenever a behavioral spec exists.
-- Never leave a step's `tests` array empty in generated-tests mode.
-  `validate_plan.sh` rejects it. An empty array does not mean "unverified", it
-  means "run the whole suite", so the step is graded against tests for files it
-  may not write and can never pass. Merge a step that has nothing to assert into
-  the step that consumes it.
-- Run one `waves` process at a time. `waves.sh` takes an atomic `mkdir` lock at
-  `.pipeline/waves.lock` and refuses to start while a live holder exists, clearing
-  the lock only when its pid is gone. Concurrent runners share `.pipeline/wt/` and
-  `done.json`, delete each other's worktrees mid-step, and mark each other's
-  completed steps as escalated; the symptom is a missing `code.log`, which reads
-  like an API failure rather than a collision.
-- Keep raw DeepSeek responses under the ignored `.pipeline/raw` directory.
-- Preserve partial commits on drift or escalation for inspection.
+Each line is a rule and the mechanism that enforces it. The failure that
+motivated a rule is in the commit that added it and in the script's own comment;
+this list is the contract, not the history.
+
+**Request and scope**
+
+- Preserve the request verbatim in `.pipeline/request.txt`. Stop on low intent
+  confidence.
+- `.pipeline/intent.json` `allowed_files` is authoritative. Steps may not modify
+  tests or dependency manifests.
+- Keep tests independent of the generated plan.
+- Never leave a step's `tests` array empty in generated-tests mode
+  (`validate_plan.sh` rejects it): empty means "run the whole suite", so the step
+  is graded against tests for files it may not write. Merge it into its consumer.
+- Give the tester the spec. `tests.sh` includes `spec_files` from `intent.json`,
+  falling back to tracked markdown referenced from `intent.md`. Without it the
+  tester sees only files the run has yet to create and invents the domain.
+
+**Credentials**
+
+- Redact by path AND by content. Read-only context: matching lines redacted. A
+  file the step may rewrite: a match is fatal, as are binary and secret-bearing
+  writable paths.
+- `.pipeline-model-exclude` withholds whole files from every model; excluded files
+  cannot be writable steps. `.pipeline-model-allow` clears a reviewed false
+  positive per line, as `<sha256-of-line>  <repo-relative-path>` using the hash
+  the refusal prints. `waves.sh` copies both into every step worktree.
+
+**Coder bounds**
+
+- `PIPELINE_MAX_ATTEMPTS`, default 3, range 1-3. The ladder is by attempt index —
+  flash, pro, pro — so a lower cap truncates it rather than reassigning models.
+  Out of range is a configuration error.
+- `DS_MAX_TOKENS` (131072) and `DS_MAX_TIME` (1200s) in `ds.sh`. The contract is
+  whole-file output, so the budget must cover the largest file the pipeline can
+  rewrite plus any reasoning trace. On truncation `ds.sh` names the cause.
+- Bound every test invocation with `test_timeout_seconds`
+  (`PIPELINE_TEST_TIMEOUT` overrides), so a coder-introduced loop cannot hang a run.
+- Give the coder a symbol index. `symbol_index.sh` lists non-test declarations as
+  `path:line: declaration`; without it a step reimplements helpers it cannot see.
+- Parse file blocks by keyword, not delimiter width. `apply_files.sh` accepts a
+  4-12 character marker run and unwraps a single Markdown fence. `FILE` and
+  `ENDFILE` identify a marker; a `<<<<<<< HEAD` sample stays body text.
+
+**Do not charge a bad test to the coder**
+
+- `check_baseline.sh` HALTs when generated tests raise `ReferenceError`,
+  `NameError`, `SyntaxError`, `IndentationError`, or `Unexpected token` — the file
+  does not execute, so no implementation can satisfy it.
+  `PIPELINE_ALLOW_BROKEN_TESTS=1` overrides.
+- `code.sh` stops at two attempts when the failure signature repeats: attempt 1 is
+  flash and attempt 2 is pro, so an identical failure is already a cross-model
+  result. The signature strips digits and hex runs.
+- Normalize generated test titles to identifiers in `tests.sh`. Selectors build one
+  regex from mapped names, where a space or colon matches wrongly. Colliding titles
+  get a numeric suffix.
+- Scope the generated test path to the run. A previous run's tests are part of the
+  suite, and `tests.sh` refuses to overwrite.
+
+**Escalation**
+
+- Opus repairs an escalated step in the main session — it already holds the
+  request, intent, and plan — but does not grade itself. `repair_done.sh`
+  re-checks the allowlist, manifests, test files, and mapped tests, then commits
+  and marks the step done. It refuses rather than negotiating, and `done.json` is
+  never hand-edited: a fake `done` entry makes `waves.sh` skip an unimplemented
+  step.
+- `repair_ctx.sh` puts the mapped test source in the brief. The coder never sees
+  it, so it can fail on an error string it had to guess; Opus can read it. Files
+  over 800 lines fall back to the mapped tests with 25 lines of context. The file
+  stays read-only.
+- `repair_ctx.sh` also writes `.claude/routing-ack` and adds it to `info/exclude`.
+  The routing gate resolves that path against the project, so a hand-written ack
+  dirties the tree and reads as out-of-allowlist. `repair_done.sh` skips that one
+  exact path.
+- `PIPELINE_MAX_REPAIRS`, default 2, enforced in `repair_done.sh` by counting
+  `repaired_by_opus` in `done.json`. Left as prose the stage becomes "Opus writes
+  everything", and the verify subagent sees a diff, not authorship.
+- `ever_escalated` survives a repair, so `review_trigger.sh` still demands the
+  Opus review and the isolated verify subagent still gives the one independent
+  verdict.
+- When the test is what failed, `restart_run.sh` regenerates rather than editing
+  it: reset to the run base, tag the abandoned commits, archive the failing tests
+  and reason under `.pipeline/attempt-N`, clear plan and tests, keep request and
+  intent. `PIPELINE_MAX_RESTARTS`, default 1 — a second bad test set points at the
+  spec or intent. The new test path is stamped from a freshly detected toolchain,
+  or stamps stack.
+
+**Concurrency and state**
+
+- One `waves` process at a time, via an atomic `mkdir` lock at
+  `.pipeline/waves.lock`, cleared only when the holder's pid is gone. The same
+  EXIT trap that removes worktrees releases the lock.
+- Clear `.pipeline/ESCALATE` at the start of `waves.sh`: appended to within a run
+  so parallel failures survive, stale across runs.
+- Keep raw DeepSeek responses under the ignored `.pipeline/raw`.
+- Preserve partial commits on drift or escalation.
 
 ## Main artifacts
 
 | Artifact | Purpose |
 |---|---|
-| `.pipeline/toolchain.json` | Language, framework, commands, selector mode, and test path |
+| `.pipeline/toolchain.json` | Language, framework, commands, selector mode, test path |
 | `.pipeline/intent.md` | Human-readable intent |
 | `.pipeline/intent.json` | Authoritative allowlist and structured intent |
 | `.pipeline/plan.md` | DeepSeek plan |
-| `.pipeline/tests_spec.md` | Generated tests, existing-suite context, or the judgment-fallback reason |
-| `.pipeline/plan_final.json` | Claude-gated steps, dependencies, and exact test names |
+| `.pipeline/tests_spec.md` | Generated tests, existing-suite context, or judgment-fallback reason |
+| `.pipeline/plan_final.json` | Claude-gated steps, dependencies, exact test names |
 | `.pipeline/repair_ctx.md` | Brief for the Opus repair of an escalated step |
 | `.pipeline/attempt-N/` | Plan, tests, and reason of an abandoned attempt |
-| `.pipeline/verify.md` | Final ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
+| `.pipeline/verify.md` | ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
 
 ## Commands
 
 - `/build <request>` runs the full workflow.
-- `/intent`, `/gate`, `/review`, and `/verify` expose individual Claude stages.
-
-Run `pipeline/test_adapters.sh` to validate toolchain detection and selector
-dispatch without calling the DeepSeek API.
-
-Run `pipeline/test_safety.sh` to validate plan identifiers, dependency
-references, traversal rejection, and symlink write protection.
-
-Run `pipeline/test_apply_files.sh` to validate coder-output parsing without the
-API: short, long, and mismatched marker runs, Markdown-fence unwrapping against
-fences that are real content, and the unchanged refusals for an unterminated
-block and an out-of-scope path.
-
-With a configured API key, `pipeline/test_api.sh` verifies the DeepSeek API
-wrapper and `pipeline/test_e2e_node.sh` runs a real red-to-green Node coding loop
-through `code.sh`.
-
-`pipeline/test_e2e_waves.sh` runs two file-disjoint DeepSeek implementation steps
-in parallel worktrees, cherry-picks both commits, and runs the complete suite.
-
-`pipeline/test_retry_escalation.sh` deterministically exercises a successful
-second attempt, review triggering, scope rejection, and three-attempt escalation.
-
-`pipeline/test_hardening.sh` covers the bad-test guards without the API: title
-normalization and collision suffixing, HALT on a test file that cannot execute
-against no HALT on an ordinary failing assertion, early escalation on a repeated
-failure signature against a full three attempts when the failure changes, the
-attempt cap and its model ladder, the symbol index, and the run-scoped generated
-test path.
-`pipeline/test_repair.sh` covers the escalated-step repair without the API: the
-brief, the five refusals in `repair_done.sh` (nothing changed, out of allowlist,
-test file edited, manifest edited, mapped tests still failing), the exhausted
-repair budget, the accepted repair, and the `waves.sh` resume that does not
-re-run the repaired step.
-
-`pipeline/test_restart.sh` covers `restart_run.sh` without the API: what it
-resets, what it keeps, the tag and archive of the abandoned attempt, the single
-unstacked test-path stamp, and the one-restart budget.
-
-`pipeline/test_verify.sh` checks ACCEPT, DRIFT, and malformed verifier outputs.
-
-`pipeline/test_e2e_compiled.sh <java|csharp|c|cpp>` runs a real DeepSeek coding
-loop against that compiled language. On Windows, use `test_java.ps1 -E2E` for a
-temporary checksum-verified Java toolchain.
-
-`pipeline/validate_test_names.sh` checks generated test mappings against their
-native source before waves. Existing-suite C and C++ steps use empty mappings
-and run the full suite.
+- `/intent`, `/gate`, `/review`, `/verify` expose individual Claude stages.
 
 On Windows, `pipeline/invoke.ps1 <script> -Repo <project-root>` runs against an
 explicit repository and restores the caller's working directory.
 
-Run `pipeline/smoke_adapters.sh` to drive each adapter's real toolchain against a
-hand-written test file, also without the API. It checks that the runner discovers
-a file at `generated_test_file` and that the selector resolves one named test,
-and it skips adapters whose toolchain is not installed rather than passing them.
+## Test suites
 
-On Windows, `pipeline/test_java.ps1` downloads checksum-verified portable JDK and
-Maven archives, runs the smoke suite with them, and removes the temporary
-toolchain afterward.
+No API key required:
 
-`pipeline/test_all_toolchains.ps1` extends that audit with temporary Go, Gradle,
-Meson, and GNU Make toolchains so every advertised adapter is exercised.
+| Suite | Covers |
+|---|---|
+| `test_adapters.sh` | Toolchain detection and selector dispatch |
+| `test_safety.sh` | Plan identifiers, dependency refs, traversal, symlink writes |
+| `test_apply_files.sh` | Coder-output parsing: marker runs, fences, refusals |
+| `test_validation.sh` | Plan and mapped-test validation |
+| `test_hardening.sh` | Title normalization, baseline classification, early escalation, attempt cap and ladder, symbol index, run-scoped test path |
+| `test_retry_escalation.sh` | Second-attempt success, review triggering, scope rejection, three-attempt escalation, resume |
+| `test_repair.sh` | Repair brief, `repair_done.sh` refusals, accepted repair, resume without re-running |
+| `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
+| `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
+| `smoke_adapters.sh` | Each adapter's real toolchain against a hand-written test; skips uninstalled toolchains |
 
+API key required:
+
+| Suite | Covers |
+|---|---|
+| `test_api.sh` | DeepSeek API wrapper |
+| `test_e2e_node.sh` | Real red-to-green Node loop through `code.sh` |
+| `test_e2e_waves.sh` | Two file-disjoint steps in parallel worktrees, then full suite |
+| `test_e2e_compiled.sh <lang>` | Real coding loop against java, csharp, c, or cpp |
+
+Windows toolchain audits: `test_java.ps1` (portable JDK and Maven, checksum
+verified, removed afterward), `test_java.ps1 -E2E` for the compiled e2e, and
+`test_all_toolchains.ps1` for Go, Gradle, Meson, and GNU Make.
+
+`validate_test_names.sh` checks generated mappings against native test source
+before waves; existing-suite adapters use empty mappings and run the full suite.
 Most runners exit 0 when a selector matches no test — verified for `node --test`,
-Vitest, Jest, Go, Cargo, Maven, and `dotnet test`. Before any coder call,
-`validate_test_names.sh` checks generated mappings against native test source.
-Existing-suite adapters use empty mappings and run the complete suite.
+Vitest, Jest, Go, Cargo, Maven, and `dotnet test` — which is why that check runs
+before any coder call.

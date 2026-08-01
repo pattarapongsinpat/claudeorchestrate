@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Brief for the main-session Opus repair of an escalated step.
-#
-# The repair runs in the session that already holds the request, the intent, and
-# the plan, so this prints only what that session does not have: which step gave
-# up, the exact bounds it must stay inside, and what the coder's last attempt hit.
+# Brief for the main-session Opus repair of an escalated step: which step gave up,
+# the bounds it must stay inside, what its last attempt hit, and the mapped tests.
 # Writes .pipeline/repair_ctx.md and prints the step id.
 set -euo pipefail
 PLAN=.pipeline/plan_final.json
@@ -13,9 +10,8 @@ OUT=.pipeline/repair_ctx.md
 [[ -f "$PLAN" ]] || { echo "no $PLAN" >&2; exit 1; }
 [[ -f .pipeline/ESCALATE ]] || { echo "no .pipeline/ESCALATE — nothing to repair" >&2; exit 1; }
 
-# done.json is the authority on which step failed. The ESCALATE marker is appended
-# to by every failing step in a wave, so parsing it for the id would pick one of
-# several arbitrarily.
+# done.json is the authority: the ESCALATE marker is appended to by every failing
+# step in a wave, so parsing it for an id picks one of several arbitrarily.
 mapfile -t STEPS < <(jq -r '.steps | to_entries[] | select(.value.status == "escalated") | .key' "$STATE" 2>/dev/null | tr -d '\r')
 ((${#STEPS[@]})) || { echo "no escalated step in $STATE" >&2; exit 1; }
 
@@ -28,10 +24,8 @@ mapfile -t ALL_TESTS < <(
 )
 ((${#ALL_TESTS[@]})) || ALL_TESTS=(".")
 
-# The routing gate resolves `.claude/routing-ack` against the working directory,
-# which during a run is the project, not the runtime. Writing it here keeps the
-# repair to one step and keeps the ack inside its freshness window, and the
-# info/exclude line keeps it from dirtying a tree that waves.sh refuses to start on.
+# The gate resolves .claude/routing-ack against the project, not the runtime.
+# Writing it here keeps it fresh; info/exclude keeps it from dirtying the tree.
 mkdir -p .claude
 printf 'Routing: inline - escalation repair\n' > .claude/routing-ack
 EXCLUDE="$(git rev-parse --git-path info/exclude)"
@@ -66,11 +60,8 @@ grep -Fqx '/.claude/routing-ack' "$EXCLUDE" 2>/dev/null || printf '/.claude/rout
   echo '```'
   echo
 
-  # The coder never sees this file, which is why it can fail a step for reasons no
-  # amount of rewriting fixes — an exact error string it had to guess, a field name
-  # stated nowhere else. Opus can read it, so the brief hands it over rather than
-  # making the repair go looking. It stays read-only: a repair that edits its
-  # grader is refused by repair_done.sh.
+  # The coder never sees this file, so it can fail on an error string it had to
+  # guess. Opus can read it. Read-only: repair_done.sh refuses a grader edit.
   echo "## Mapped tests — READ ONLY, editing these is refused"
   if [[ -n "$TEST_FILE" && -f "$TEST_FILE" ]]; then
     echo "### $TEST_FILE"
@@ -78,8 +69,7 @@ grep -Fqx '/.claude/routing-ack' "$EXCLUDE" 2>/dev/null || printf '/.claude/rout
     if (( $(wc -l < "$TEST_FILE") <= MAXTESTLINES )); then
       cat "$TEST_FILE"
     else
-      # The declaration line alone is worthless here — the assertion is the whole
-      # reason to read the file — so the match carries its body with it.
+      # The assertion is the reason to read this, so carry the body with the match.
       echo "[file exceeds $MAXTESTLINES lines — showing the mapped tests with context]"
       grep -nE -A 25 "$(IFS='|'; echo "${ALL_TESTS[*]}")" "$TEST_FILE" || true
     fi

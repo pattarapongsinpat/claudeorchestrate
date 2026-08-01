@@ -108,11 +108,8 @@ cleanup_wt(){
     | while read -r b; do git branch -D "$b" 2>/dev/null || true; done
   rm -rf "$WORKROOT" 2>/dev/null || true
 }
-# This trap replaces the one that drops the lock, so it has to drop the lock too.
-# It did not, and every run ended holding its own lock: harmless while the next
-# run finds the pid dead and clears it, wrong the moment the OS reuses that pid
-# and a clean repository refuses to start with "another waves run is already
-# active".
+# This trap replaces the lock's own EXIT trap, so it must drop the lock too.
+# Otherwise every run ends holding its lock, and a reused pid blocks a clean repo.
 cleanup_all(){ cleanup_wt; rm -rf "$LOCK"; }
 trap cleanup_all EXIT
 cleanup_wt

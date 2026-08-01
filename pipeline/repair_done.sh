@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 # Accept a main-session Opus repair of an escalated step.
-#
-# The repair is written by a session that has the whole run in context, which is
-# why it is worth doing at all — but that session is also the one that chose to
-# repair, so it does not get to grade itself. Every bound the coder had is
-# re-checked here against the working tree: allowlist, dependency manifests, test
-# files, and the step's own mapped tests. Only then does the step count as done,
-# and only then will waves.sh skip it on resume.
+# The session that chose to repair does not grade itself: every bound the coder
+# had is re-checked here before the step counts as done.
 set -euo pipefail
 PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STEP="${1:?usage: repair_done.sh <step-id>}"
@@ -21,12 +16,8 @@ jq -e --arg id "$STEP" '.steps[$id].status == "escalated"' "$STATE" >/dev/null 2
   echo "REFUSED: $STEP is not an escalated step in $STATE" >&2; exit 1;
 }
 
-# The repair budget, enforced here rather than left to the session that is
-# spending it. Without this the stage quietly becomes "Opus writes everything":
-# the verify subagent sees only the request and the final diff, so a run repaired
-# end to end looks exactly like one DeepSeek produced, and the cost this stage was
-# meant to bound goes unmeasured. Two failures are a bad step; three are a bad
-# plan or a bad generated test, and repairing them one at a time hides that.
+# Budget enforced here, not left to the session spending it: the verify subagent
+# sees a diff, not authorship, so an all-Opus run is otherwise indistinguishable.
 MAX_REPAIRS="${PIPELINE_MAX_REPAIRS:-2}"
 [[ "$MAX_REPAIRS" =~ ^[0-9]+$ ]] || {
   echo "PIPELINE_MAX_REPAIRS must be a non-negative integer (got: $MAX_REPAIRS)" >&2; exit 1;
@@ -43,18 +34,14 @@ BASE=$(git rev-parse HEAD)
 mapfile -t ALLOWED < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.files_allowed[]' "$PLAN" | tr -d '\r')
 mapfile -t TEST_NAMES < <(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.tests[]?' "$PLAN" | tr -d '\r')
 
-# .claude/routing-ack is harness state the routing gate requires before Opus may
-# write anything, so it exists by the time any repair does. It is excluded by
-# exact path, never by prefix: the rest of .claude/ is project configuration and a
-# repair has no business there.
+# The routing gate writes .claude/routing-ack before Opus may write anything.
+# Excluded by exact path, never by prefix: the rest of .claude/ is off limits.
 TOUCHED=$( { git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } \
   | { grep -Fxv '.claude/routing-ack' || true; } | sort -u )
 [[ -n "$TOUCHED" ]] || { echo "REFUSED: nothing changed for $STEP" >&2; exit 1; }
 
-# The same bounds code.sh enforces, but manifests and tests are checked before the
-# allowlist. Those files are almost never in an allowlist, so the generic "outside
-# the allowlist" message would be the one reported every time, and it does not say
-# the part that matters: the repair edited its own grader.
+# Manifests and tests before the allowlist: they are rarely in one, so the generic
+# message would always win and would not name the part that matters.
 mapfile -t DEPENDENCY_FILES < <(jq -r '.dependency_files[]?' .pipeline/toolchain.json | tr -d '\r')
 if ((${#DEPENDENCY_FILES[@]})); then
   DEPS=$(printf '%s\n' "$TOUCHED" | grep -Fx -f <(printf '%s\n' "${DEPENDENCY_FILES[@]}") || true)
@@ -95,8 +82,7 @@ git add -A -- "${ALLOWED[@]}"
 git commit -qm "repair($STEP): $(jq -r --arg id "$STEP" '.steps[]|select(.id==$id)|.description' "$PLAN")"
 COMMIT=$(git rev-parse HEAD)
 
-# ever_escalated stays true, so review_trigger.sh still demands an Opus review of
-# the run — a repaired step is exactly the kind that needs one.
+# ever_escalated stays true, so review_trigger.sh still demands an Opus review.
 FINGERPRINT=$(jq -cS --arg id "$STEP" '.steps[] | select(.id == $id)' "$PLAN" | sha256sum | cut -d' ' -f1)
 TMP=$(mktemp)
 jq --arg id "$STEP" --arg commit "$COMMIT" --arg fingerprint "$FINGERPRINT" '
@@ -111,8 +97,7 @@ jq --arg id "$STEP" --arg commit "$COMMIT" --arg fingerprint "$FINGERPRINT" '
   }
 ' "$STATE" > "$TMP" && mv "$TMP" "$STATE"
 
-# The marker is per-run and append-only, so it is only cleared once no escalated
-# step is left. Otherwise a second failing step in the same wave loses its record.
+# Append-only and per-run, so clear it only once no escalated step is left.
 if ! jq -e '[.steps[] | select(.status == "escalated")] | length > 0' "$STATE" >/dev/null; then
   rm -f .pipeline/ESCALATE
 fi
