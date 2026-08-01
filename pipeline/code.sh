@@ -92,9 +92,20 @@ failure_signature() {
 }
 PREVIOUS_SIGNATURE=""
 
+# How many coder calls a step gets. One is the default: the step is graded against
+# a mapped test, so a single attempt either satisfies it or produces a failure an
+# Opus escalation reads faster than two more DeepSeek samples do. Raise it to 3 to
+# restore the full flash-then-pro-then-pro ladder.
+MAX_ATTEMPTS="${PIPELINE_MAX_ATTEMPTS:-1}"
+[[ "$MAX_ATTEMPTS" =~ ^[1-3]$ ]] || {
+  echo "PIPELINE_MAX_ATTEMPTS must be 1, 2, or 3 (got: $MAX_ATTEMPTS)" >&2; exit 1;
+}
+
+# The ladder is by attempt index, not by cap: flash, then pro, then pro. A lower
+# cap truncates it rather than changing which model any attempt uses.
 MODEL=deepseek-v4-flash
 TRUNCATED=0
-for i in 1 2 3; do
+for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
   git checkout "$BASE" -- .
   git clean -fdq 2>/dev/null || true   # entry guard guarantees a clean tree, so every untracked file here is this run's
 
@@ -253,11 +264,11 @@ done
 git checkout "$BASE" -- .
 git clean -fdq 2>/dev/null || true
 { echo "step: $STEP"
-  echo "exhausted 3 iterations"
+  echo "exhausted $MAX_ATTEMPTS iterations"
   ((TRUNCATED)) && echo "cause: at least one response was truncated — the step's files are probably too large for the whole-file contract. Split the step or narrow files_allowed."
   echo "--- last feedback ---"
   cat $WORK/feedback.md 2>/dev/null || true
 } > .pipeline/ESCALATE
-write_status 3 true
-echo "ESCALATE: $STEP exhausted 3 iterations" >&2
+write_status "$MAX_ATTEMPTS" true
+echo "ESCALATE: $STEP exhausted $MAX_ATTEMPTS iterations" >&2
 exit 1

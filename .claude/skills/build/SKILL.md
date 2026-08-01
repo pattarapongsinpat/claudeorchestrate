@@ -56,7 +56,8 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 1. Confirm the current directory is inside a Git repository.
 2. Run `git status --porcelain`. Stop and report the paths if the worktree is dirty. Do not include pre-existing changes in pipeline commits.
 3. Confirm `DEEPSEEK_API_KEY` is available from the environment or the shared runtime `.env`.
-4. Halt immediately whenever `.pipeline/HALT` or `.pipeline/ESCALATE` appears.
+4. Halt immediately whenever `.pipeline/HALT` appears. `.pipeline/ESCALATE` is
+   handled by the repair stage in step 7, not by halting on sight.
 
 ## Workflow
 
@@ -83,20 +84,46 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 
    Run pipeline script `waves`.
 
-7. Run pipeline script `final_check`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
+7. If `waves` wrote `.pipeline/ESCALATE`, repair the step yourself rather than
+   stopping. You already hold the request, the intent, and the plan, so this
+   costs one Opus turn instead of a fresh context.
 
-8. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.
+   a. Run pipeline script `repair_ctx`. It prints the escalated step ids and
+      writes `.pipeline/repair_ctx.md`.
+   b. Read that file and write only the files under `files_allowed` for that
+      step. Do not touch tests or dependency manifests. `repair_ctx` already
+      wrote the routing-gate ack, so no separate step is needed; this is the one
+      stage where Opus writes implementation code. If the write is blocked
+      because the ack expired, re-run `repair_ctx`.
+   c. Run pipeline script `repair_done` with the step id. It re-checks the
+      allowlist, the manifests, the test files, and the step's mapped tests,
+      then commits and marks the step done. On `REFUSED` fix the cause; do not
+      edit `done.json` by hand.
+   d. Re-run pipeline script `waves`. It resumes and runs the steps that never
+      got their turn.
+
+   `repair_done` enforces a limit of two repairs per run. When it refuses on the
+   budget, stop and report: that many failures means the plan or the generated
+   tests are wrong, and repairing them one by one hides it.
+
+8. Run pipeline script `final_check`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
+
+9. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.
 
    Judgment mode always triggers this Opus review.
 
-9. Always read and perform `$HOME/.claudeorchestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
+10. Always read and perform `$HOME/.claudeorchestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
 
-10. On `ACCEPT`, collapse pipeline commits:
+    A repaired step makes this more important, not less: the session that wrote
+    the repair is the one asking for the verdict, so the isolated subagent is
+    the only independent check left.
+
+11. On `ACCEPT`, collapse pipeline commits:
 
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`
 
-   On `DRIFT` or `ESCALATE`, preserve the per-step commits for inspection.
+   On `DRIFT` or an unrepaired `ESCALATE`, preserve the per-step commits for inspection.
 
-11. Append the run result to `.pipeline/log.csv` and report token usage from pipeline script `usage`.
+12. Append the run result to `.pipeline/log.csv` and report token usage from pipeline script `usage`.
 
 Report the final verdict, changed files, tests or judgment fallback, and commit hash. Keep the response concise.

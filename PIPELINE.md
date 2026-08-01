@@ -76,10 +76,12 @@ toolchains write `.pipeline/HALT` with the reason.
    after every implementation attempt.
 9. `pipeline/final_check.sh` runs the whole suite, or the fallback mechanical
    command. In test mode, regressions in untargeted tests surface only here.
-10. Opus review is mandatory for judgment-fallback runs.
-11. A fresh Claude subagent receives only the original request and final diff,
+10. On a step's ESCALATE, the Opus session repairs that one step itself, then
+    `waves.sh` resumes the steps the stall blocked. Two repairs per run maximum.
+11. Opus review is mandatory for judgment-fallback runs and for repaired runs.
+12. A fresh Claude subagent receives only the original request and final diff,
     then returns the ACCEPT or DRIFT verdict.
-12. Accepted step commits collapse into one implementation commit.
+13. Accepted step commits collapse into one implementation commit.
 
 ## Safety invariants
 
@@ -112,6 +114,43 @@ toolchains write `.pipeline/HALT` with the reason.
   result and the third call only reproduces it; the marker says to suspect the
   test. The signature strips digits and hex runs, so a random id in the message
   does not disguise a repeat.
+- Cap coder calls per step at `PIPELINE_MAX_ATTEMPTS`, default 1, valid values 1
+  to 3. The step is graded against a mapped test, so a failed attempt already
+  carries the evidence an Opus escalation needs; two more DeepSeek samples mostly
+  buy time. Set it to 3 to restore the full ladder when a run is worth the extra
+  calls. The ladder itself is indexed by attempt and does not change with the cap:
+  attempt 1 on flash, attempts 2 and 3 on pro. A value outside 1-3 is a
+  configuration error and stops the step. The repeated-signature guard above still
+  applies whenever the cap allows a second attempt.
+- Repair an escalated step in the main Opus session, and grade that repair with a
+  script. The session already holds the request, the intent, and the plan, so a
+  subagent would pay for that context again to know less. But it is also the
+  session that decided to repair, so it does not get to grade itself:
+  `repair_done.sh` re-checks the allowlist, the dependency manifests, the test
+  files, and the step's own mapped tests against the working tree, and only then
+  commits and marks the step done. It refuses rather than negotiating, and it
+  never lets the session edit `done.json` directly, since a hand-written `done`
+  entry makes `waves.sh` skip a step that was never implemented. `ever_escalated`
+  survives the repair, so `review_trigger.sh` still demands the Opus review and
+  the isolated verify subagent still gives the one independent verdict.
+- Enforce the repair budget in `repair_done.sh`, not in the instructions.
+  `PIPELINE_MAX_REPAIRS`, default 2, counts `repaired_by_opus` entries in
+  `done.json` and refuses beyond it. Left as prose the stage quietly becomes
+  "Opus writes everything": the verify subagent sees only the request and the
+  final diff, so a run repaired end to end is indistinguishable from one DeepSeek
+  produced, and the cost the stage exists to bound goes unmeasured. Two failures
+  are a bad step; three are a bad plan or a bad generated test.
+- Let `repair_ctx.sh` write `.claude/routing-ack` and exclude it locally. The
+  routing gate resolves that path against the working directory, which during a
+  run is the project rather than the runtime, so a hand-written ack lands in the
+  project, dirties the tree `waves.sh` refuses to start on, and reads to
+  `repair_done.sh` as a file outside the step allowlist. `repair_done.sh` skips
+  that one exact path and no other part of `.claude/`.
+- Release the waves lock in the same trap that removes the worktrees. `waves.sh`
+  sets an EXIT trap for the lock and then replaced it with the worktree cleanup,
+  so every run ended still holding its own lock. It self-healed only because the
+  next run found the recorded pid dead; a reused pid turns that into a clean
+  repository refusing to start with "another waves run is already active".
 - Give the coder a repository symbol index. `symbol_index.sh` lists declarations
   from non-test sources as `path:line: declaration`, and `code.sh` includes it in
   every step. A step sees only its allowlist and its context files, so without
@@ -176,6 +215,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | `.pipeline/plan.md` | DeepSeek plan |
 | `.pipeline/tests_spec.md` | Generated tests, existing-suite context, or the judgment-fallback reason |
 | `.pipeline/plan_final.json` | Claude-gated steps, dependencies, and exact test names |
+| `.pipeline/repair_ctx.md` | Brief for the Opus repair of an escalated step |
 | `.pipeline/verify.md` | Final ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
 
 ## Commands
@@ -208,7 +248,14 @@ second attempt, review triggering, scope rejection, and three-attempt escalation
 normalization and collision suffixing, HALT on a test file that cannot execute
 against no HALT on an ordinary failing assertion, early escalation on a repeated
 failure signature against a full three attempts when the failure changes, the
-symbol index, and the run-scoped generated test path.
+attempt cap and its model ladder, the symbol index, and the run-scoped generated
+test path.
+`pipeline/test_repair.sh` covers the escalated-step repair without the API: the
+brief, the five refusals in `repair_done.sh` (nothing changed, out of allowlist,
+test file edited, manifest edited, mapped tests still failing), the exhausted
+repair budget, the accepted repair, and the `waves.sh` resume that does not
+re-run the repaired step.
+
 `pipeline/test_verify.sh` checks ACCEPT, DRIFT, and malformed verifier outputs.
 
 `pipeline/test_e2e_compiled.sh <java|csharp|c|cpp>` runs a real DeepSeek coding
