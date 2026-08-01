@@ -54,7 +54,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | Plan | `deepseek-v4-pro` |
 | Native tests | `deepseek-v4-pro`, unless Opus selects the judgment fallback |
 | Plan gate | Claude Opus session |
-| Code steps | `deepseek-v4-flash`, then `deepseek-v4-pro` on retries |
+| Code steps | `deepseek-v4-flash` or `deepseek-v4-pro`, one graded attempt (`PIPELINE_CODER_MODEL`) |
 | Escalated step repair | Claude Opus session |
 | Review | Claude Opus session when triggered or required by the judgment fallback |
 | Final request check | Claude Opus session |
@@ -117,9 +117,21 @@ this list is the contract, not the history.
 
 **Coder bounds**
 
-- `PIPELINE_MAX_ATTEMPTS`, default 3, range 1-3. The ladder is by attempt index —
-  flash, pro, pro — so a lower cap truncates it rather than reassigning models.
-  Out of range is a configuration error.
+- One graded attempt per step. `PIPELINE_CODER_MODEL` picks `flash` (default) or
+  `pro`; anything else is a configuration error. There is no flash-then-pro
+  ladder: a failed assertion escalates to the Opus repair, which can read the
+  mapped test the coder never sees and so solves failures no further DeepSeek
+  sample would. The ladder's retries were reverted wholesale on escalation, so
+  they bought a diagnosis the first failure already carried.
+- Re-ask, do not escalate, when the output never reached a test. Truncated,
+  malformed, empty, and out-of-scope responses are formatting failures with no
+  assertion behind them, so `PIPELINE_MAX_FORMAT_RETRIES` (default 2) re-asks the
+  same model. Exhausting them says the coder produced no usable output rather
+  than blaming the code.
+- Carry the failed attempt into `.pipeline/ESCALATE` as a diff. It is reverted
+  from the tree, so nothing unverified can be committed, but it is the only
+  artifact the failed call produced and the repair usually needs to change one
+  line of it rather than rewrite from the original.
 - `DS_MAX_TOKENS` (131072) and `DS_MAX_TIME` (1200s) in `ds.sh`. The contract is
   whole-file output, so the budget must cover the largest file the pipeline can
   rewrite plus any reasoning trace. On truncation `ds.sh` names the cause.
@@ -137,9 +149,6 @@ this list is the contract, not the history.
   `NameError`, `SyntaxError`, `IndentationError`, or `Unexpected token` — the file
   does not execute, so no implementation can satisfy it.
   `PIPELINE_ALLOW_BROKEN_TESTS=1` overrides.
-- `code.sh` stops at two attempts when the failure signature repeats: attempt 1 is
-  flash and attempt 2 is pro, so an identical failure is already a cross-model
-  result. The signature strips digits and hex runs.
 - Normalize generated test titles to identifiers in `tests.sh`. Selectors build one
   regex from mapped names, where a space or colon matches wrongly. Colliding titles
   get a numeric suffix.
@@ -217,8 +226,8 @@ No API key required:
 | `test_safety.sh` | Plan identifiers, dependency refs, traversal, symlink writes |
 | `test_apply_files.sh` | Coder-output parsing: marker runs, fences, refusals |
 | `test_validation.sh` | Plan and mapped-test validation |
-| `test_hardening.sh` | Title normalization, baseline classification, early escalation, attempt cap and ladder, symbol index, run-scoped test path |
-| `test_retry_escalation.sh` | Second-attempt success, review triggering, scope rejection, three-attempt escalation, resume |
+| `test_hardening.sh` | Title normalization, baseline classification, single graded attempt, model choice, format re-asks, symbol index, run-scoped test path |
+| `test_escalation.sh` | Escalation on a failed assertion, review triggering, scope rejection, resume after escalation |
 | `test_repair.sh` | Repair brief, `repair_done.sh` refusals, accepted repair, resume without re-running |
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |

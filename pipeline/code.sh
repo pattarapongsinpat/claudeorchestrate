@@ -78,36 +78,31 @@ fi
 # simply loses the duplication hint.
 "$PIPELINE_HOME/pipeline/symbol_index.sh" > $WORK/symbols.md 2>/dev/null || : > $WORK/symbols.md
 
-# Fingerprint of a failing test run, used to detect a test the code cannot satisfy.
-# Volatile detail is stripped so two runs of the same real failure hash alike:
-# durations and timestamps, and the digit/hex runs inside generated ids — the case
-# that motivated this was two attempts differing only in a random branch id.
-failure_signature() {
-  sed -E \
-      -e '/Duration|Start at|RUN |Test Files|^[[:space:]]*$/d' \
-      -e 's/[0-9a-f]{6,}//g' \
-      -e 's/[0-9]+//g' \
-      -e 's/[[:space:]]+/ /g' \
-    "$1" | sort -u | sha256sum | cut -d' ' -f1
-}
-PREVIOUS_SIGNATURE=""
+# Which model writes the step. There is no flash-then-pro ladder: a step that
+# fails its tests escalates to the Opus repair, which can read the mapped test the
+# coder never sees and so solves failures no further DeepSeek sample would. The
+# ladder's retries were reverted wholesale on escalation, so they bought a
+# diagnosis the first failure already carried.
+case "${PIPELINE_CODER_MODEL:-flash}" in
+  flash|deepseek-v4-flash) MODEL=deepseek-v4-flash ;;
+  pro|deepseek-v4-pro)     MODEL=deepseek-v4-pro ;;
+  *) echo "PIPELINE_CODER_MODEL must be flash or pro (got: $PIPELINE_CODER_MODEL)" >&2; exit 1 ;;
+esac
 
-# Coder calls per step. Three, because a DeepSeek retry is far cheaper than the
-# Opus repair it avoids, and an escalation no longer ends the run. The guards below
-# still cut the ladder short when another sample will not help.
-MAX_ATTEMPTS="${PIPELINE_MAX_ATTEMPTS:-3}"
-[[ "$MAX_ATTEMPTS" =~ ^[1-3]$ ]] || {
-  echo "PIPELINE_MAX_ATTEMPTS must be 1, 2, or 3 (got: $MAX_ATTEMPTS)" >&2; exit 1;
+# One graded attempt, plus bounded re-asks for output that never reached a test.
+# Truncated, malformed, empty, and out-of-scope responses are formatting failures,
+# not coding failures: no assertion has run, so there is nothing for a repair to
+# read and re-asking the same model is the cheap fix.
+MAX_FORMAT_RETRIES="${PIPELINE_MAX_FORMAT_RETRIES:-2}"
+[[ "$MAX_FORMAT_RETRIES" =~ ^[0-9]$ ]] || {
+  echo "PIPELINE_MAX_FORMAT_RETRIES must be 0-9 (got: $MAX_FORMAT_RETRIES)" >&2; exit 1;
 }
 
-# By attempt index, not by cap: a lower cap truncates the ladder.
-MODEL=deepseek-v4-flash
 TRUNCATED=0
-for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
+for ((i = 1; i <= MAX_FORMAT_RETRIES + 1; i++)); do
   git checkout "$BASE" -- .
   git clean -fdq 2>/dev/null || true   # entry guard guarantees a clean tree, so every untracked file here is this run's
 
-  [[ $i -ge 2 ]] && MODEL=deepseek-v4-pro
   echo "=== attempt $i model=$MODEL ==="
 
   {
@@ -215,58 +210,52 @@ for ((i = 1; i <= MAX_ATTEMPTS; i++)); do
     echo "PASS $STEP (iteration $i)"
     exit 0
   fi
-  echo "--- test output: attempt $i ---"
+  echo "--- test output ---"
   cat $WORK/test.out
-  echo "--- end test output: attempt $i ---"
+  echo "--- end test output ---"
 
-  # Two different models, two different rewrites of the file, and byte-identical
-  # failures: the evidence points at the test, not at the code. Attempt 1 runs on
-  # flash and attempt 2 on pro, so a repeat here is already a cross-model result.
-  # Spending the third call reproduces it a third time and still reports "the coder
-  # failed", which sends a human to read the wrong file.
-  SIGNATURE=$(failure_signature $WORK/test.out)
-  if [[ -n "$TOUCHED" && "$SIGNATURE" == "$PREVIOUS_SIGNATURE" ]]; then
-    git checkout "$BASE" -- .
-    git clean -fdq 2>/dev/null || true
-    { echo "step: $STEP"
-      echo "identical failure after $i attempts across two models — suspect the test, not the code"
-      echo "mapped tests: ${TEST_NAMES[*]}"
-      echo "Check the assertion before re-running: it may encode something the"
-      echo "implementation cannot satisfy, such as an ordering the storage engine does"
-      echo "not guarantee, or a value fixed by a random id."
-      echo "--- last test output ---"
-      tail -40 $WORK/test.out
-    } > .pipeline/ESCALATE
-    write_status "$i" true
-    echo "ESCALATE: $STEP produced the same failure twice — suspect the mapped test" >&2
-    exit 1
-  fi
-  PREVIOUS_SIGNATURE="$SIGNATURE"
-  # Blaming the tests when nothing was written sends the model chasing a
-  # failure it did not cause, so the two cases get different feedback.
-  if [[ -z "$TOUCHED" ]]; then
-    { echo "NO FILE CHANGED — your output parsed but wrote nothing, and the tests still fail."
-      echo "Emit a block per file you must change, with its complete contents."
-      echo "Allowed only: ${ALLOWED[*]}"
-      tail -40 $WORK/test.out
-    } > $WORK/feedback.md
-  else
-    { echo "TESTS FAILED — your changes were reverted."
-      echo "The files you will see next are the ORIGINAL ones, not your attempt."
-      echo "Re-output complete file blocks from scratch. Do not assume prior edits exist."
-      tail -40 $WORK/test.out
-    } > $WORK/feedback.md
-  fi
+  # The graded attempt ran and failed. Re-asking the same model with the same
+  # information is what the ladder used to do, and its output was reverted anyway.
+  # The repair reads the mapped test the coder cannot see, so it goes there now.
+  # Nothing unverified is left behind: the tree returns to BASE either way.
+  # -N so a file the step created shows as a diff rather than as nothing: a step
+  # that adds a module is exactly the case where the attempt is worth keeping.
+  git add -N -- "${ALLOWED[@]}" 2>/dev/null || true
+  ATTEMPT_DIFF=$(git diff "$BASE" -- "${ALLOWED[@]}" 2>/dev/null)
+  git checkout "$BASE" -- .
+  git clean -fdq 2>/dev/null || true
+  { echo "step: $STEP"
+    if [[ -z "$TOUCHED" ]]; then
+      echo "the coder's output parsed but wrote nothing, and the tests fail"
+    else
+      echo "the coder's attempt on $MODEL failed its mapped tests"
+    fi
+    echo "mapped tests: ${TEST_NAMES[*]}"
+    echo "Read the mapped test before rewriting: it may assert something no"
+    echo "implementation within this step's files can satisfy."
+    echo "--- test output ---"
+    tail -40 $WORK/test.out
+    if [[ -n "$ATTEMPT_DIFF" ]]; then
+      # Reverted from the tree but kept here: the attempt is usually close, and a
+      # repair that starts from it is cheaper and less likely to drop a detail the
+      # coder got right. It is the only artifact the failed call produced.
+      echo "--- the coder's reverted attempt ---"
+      printf '%s\n' "$ATTEMPT_DIFF"
+    fi
+  } > .pipeline/ESCALATE
+  write_status "$i" true
+  echo "ESCALATE: $STEP failed its mapped tests on $MODEL" >&2
+  exit 1
 done
 
 git checkout "$BASE" -- .
 git clean -fdq 2>/dev/null || true
 { echo "step: $STEP"
-  echo "exhausted $MAX_ATTEMPTS iterations"
+  echo "the coder never produced usable output in $((MAX_FORMAT_RETRIES + 1)) attempts"
   ((TRUNCATED)) && echo "cause: at least one response was truncated — the step's files are probably too large for the whole-file contract. Split the step or narrow files_allowed."
   echo "--- last feedback ---"
   cat $WORK/feedback.md 2>/dev/null || true
 } > .pipeline/ESCALATE
-write_status "$MAX_ATTEMPTS" true
-echo "ESCALATE: $STEP exhausted $MAX_ATTEMPTS iterations" >&2
+write_status "$((MAX_FORMAT_RETRIES + 1))" true
+echo "ESCALATE: $STEP produced no usable output" >&2
 exit 1

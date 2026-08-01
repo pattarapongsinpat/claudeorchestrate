@@ -102,104 +102,24 @@ EOF
 
 echo "baseline classification tests passed"
 
-# --- code.sh early escalation ------------------------------------------------
+# --- code.sh single graded attempt -------------------------------------------
 
-# Both attempts change the file and both fail the same way. Nothing the coder can
-# write satisfies this assertion, so the loop must stop at two rather than three.
-SAME_REPO="$WORK/same"
-make_node_repo "$SAME_REPO" "$(cat <<'EOF'
+# One graded attempt: the tests run once, and a failure escalates rather than
+# re-asking. The reverted attempt travels to the repair in the marker, since it is
+# the only artifact the failed call produced.
+GRADED_REPO="$WORK/graded"
+make_node_repo "$GRADED_REPO" "$(cat <<'EOF'
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { add } = require('../calculator');
 test('adds_numbers', () => assert.equal(add(2, 3), 5));
 EOF
 )"
-cat > "$SAME_REPO/.pipeline/plan_final.json" <<'EOF'
+cat > "$GRADED_REPO/.pipeline/plan_final.json" <<'EOF'
 {"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
 EOF
-SAME_COUNT="$WORK/same.count"
-cat > "$WORK/same-model.sh" <<'EOF'
-#!/usr/bin/env bash
-count=0
-[[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
-count=$((count + 1))
-printf '%s\n' "$count" > "$PIPELINE_FAKE_COUNT"
-# A different wrong answer each time: the failure text differs only in the digits,
-# which the signature strips, so the two attempts hash alike.
-printf '<<<<<<< FILE calculator.js\nfunction add(a, b) { return %s; }\nmodule.exports = { add };\n>>>>>>> ENDFILE\n' "$count"
-EOF
-chmod +x "$WORK/same-model.sh"
-(
-  cd "$SAME_REPO"
-  rc=0
-  # The log goes outside the repository: code.sh refuses to start on a dirty tree,
-  # and an untracked log file inside it counts.
-  PIPELINE_DS_COMMAND="$WORK/same-model.sh" PIPELINE_FAKE_COUNT="$SAME_COUNT" \
-    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/same-code.log" 2>&1 || rc=$?
-  [[ "$rc" == 1 ]]
-  [[ "$(cat "$SAME_COUNT")" == 2 ]]
-  grep -Fq 'suspect the test, not the code' .pipeline/ESCALATE
-  grep -Fq 'adds_numbers' .pipeline/ESCALATE
-  # The step still reverts cleanly; an early exit must not leave the tree dirty.
-  git diff --quiet
-)
-
-# A genuinely different failure on the second attempt still gets its third try.
-PROGRESS_REPO="$WORK/progress"
-make_node_repo "$PROGRESS_REPO" "$(cat <<'EOF'
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { add } = require('../calculator');
-test('adds_numbers', () => assert.equal(add(2, 3), 5));
-EOF
-)"
-cat > "$PROGRESS_REPO/.pipeline/plan_final.json" <<'EOF'
-{"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
-EOF
-PROGRESS_COUNT="$WORK/progress.count"
-cat > "$WORK/progress-model.sh" <<'EOF'
-#!/usr/bin/env bash
-count=0
-[[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
-count=$((count + 1))
-printf '%s\n' "$count" > "$PIPELINE_FAKE_COUNT"
-case "$count" in
-  1) body='throw new Error("boom")' ;;
-  2) body='return a - b' ;;
-  *) body='return a + b' ;;
-esac
-printf '<<<<<<< FILE calculator.js\nfunction add(a, b) { %s; }\nmodule.exports = { add };\n>>>>>>> ENDFILE\n' "$body"
-EOF
-chmod +x "$WORK/progress-model.sh"
-(
-  cd "$PROGRESS_REPO"
-  PIPELINE_DS_COMMAND="$WORK/progress-model.sh" PIPELINE_FAKE_COUNT="$PROGRESS_COUNT" \
-    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/progress-code.log" 2>&1
-  [[ "$(cat "$PROGRESS_COUNT")" == 3 ]]
-  grep -Fq 'PASS s1' "$WORK/progress-code.log"
-)
-
-echo "early escalation tests passed"
-
-# --- attempt cap -------------------------------------------------------------
-
-# A lowered cap truncates the ladder without changing it, so the single attempt it
-# allows is still the flash one — the ladder is indexed by attempt, not by cap.
-# The default of three is covered by the progress case above, which takes all
-# three when the failure keeps changing.
-CAP_REPO="$WORK/cap"
-make_node_repo "$CAP_REPO" "$(cat <<'EOF'
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { add } = require('../calculator');
-test('adds_numbers', () => assert.equal(add(2, 3), 5));
-EOF
-)"
-cat > "$CAP_REPO/.pipeline/plan_final.json" <<'EOF'
-{"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
-EOF
-CAP_COUNT="$WORK/cap.count"
-cat > "$WORK/cap-model.sh" <<'EOF'
+GRADED_COUNT="$WORK/graded.count"
+cat > "$WORK/graded-model.sh" <<'EOF'
 #!/usr/bin/env bash
 count=0
 [[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
@@ -207,30 +127,115 @@ printf '%s\n' "$((count + 1))" > "$PIPELINE_FAKE_COUNT"
 printf '%s\n' "$3" >> "$PIPELINE_FAKE_COUNT.models"
 printf '<<<<<<< FILE calculator.js\nfunction add(a, b) { return a - b; }\nmodule.exports = { add };\n>>>>>>> ENDFILE\n'
 EOF
-chmod +x "$WORK/cap-model.sh"
+chmod +x "$WORK/graded-model.sh"
 (
-  cd "$CAP_REPO"
+  cd "$GRADED_REPO"
   rc=0
-  PIPELINE_MAX_ATTEMPTS=1 \
-    PIPELINE_DS_COMMAND="$WORK/cap-model.sh" PIPELINE_FAKE_COUNT="$CAP_COUNT" \
-    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/cap-code.log" 2>&1 || rc=$?
+  # The log goes outside the repository: code.sh refuses to start on a dirty tree,
+  # and an untracked log file inside it counts.
+  PIPELINE_DS_COMMAND="$WORK/graded-model.sh" PIPELINE_FAKE_COUNT="$GRADED_COUNT" \
+    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/graded-code.log" 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
-  [[ "$(cat "$CAP_COUNT")" == 1 ]]
-  [[ "$(cat "$CAP_COUNT.models")" == "deepseek-v4-flash" ]]
-  grep -Fq 'exhausted 1 iterations' .pipeline/ESCALATE
+  # Exactly one call: a failed assertion is never re-asked.
+  [[ "$(cat "$GRADED_COUNT")" == 1 ]]
+  [[ "$(cat "$GRADED_COUNT.models")" == "deepseek-v4-flash" ]]
+  grep -Fq 'failed its mapped tests' .pipeline/ESCALATE
+  grep -Fq 'adds_numbers' .pipeline/ESCALATE
+  # The attempt is reverted from the tree but preserved for the repair.
+  grep -Fq "the coder's reverted attempt" .pipeline/ESCALATE
+  grep -Fq 'return a - b' .pipeline/ESCALATE
+  git diff --quiet
+  [[ -z "$(git status --porcelain)" ]]
+)
+
+# The model is selectable, and an unknown name is a configuration error.
+PICK_COUNT="$WORK/pick.count"
+(
+  cd "$GRADED_REPO"
+  rc=0
+  PIPELINE_CODER_MODEL=pro \
+    PIPELINE_DS_COMMAND="$WORK/graded-model.sh" PIPELINE_FAKE_COUNT="$PICK_COUNT" \
+    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/pick-code.log" 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  [[ "$(cat "$PICK_COUNT.models")" == "deepseek-v4-pro" ]]
+  grep -Fq 'on deepseek-v4-pro' .pipeline/ESCALATE
+
+  rc=0
+  PIPELINE_CODER_MODEL=turbo "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/pick-bad.log" 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  grep -Fq 'PIPELINE_CODER_MODEL must be flash or pro' "$WORK/pick-bad.log"
+)
+
+# Output that never reached a test is a formatting failure, not a coding one, so
+# it is re-asked rather than escalated. Here the first response has no file block
+# and the second is usable.
+FORMAT_REPO="$WORK/format"
+make_node_repo "$FORMAT_REPO" "$(cat <<'EOF'
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { add } = require('../calculator');
+test('adds_numbers', () => assert.equal(add(2, 3), 5));
+EOF
+)"
+cat > "$FORMAT_REPO/.pipeline/plan_final.json" <<'EOF'
+{"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
+EOF
+FORMAT_COUNT="$WORK/format.count"
+cat > "$WORK/format-model.sh" <<'EOF'
+#!/usr/bin/env bash
+count=0
+[[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
+count=$((count + 1))
+printf '%s\n' "$count" > "$PIPELINE_FAKE_COUNT"
+if ((count == 1)); then
+  printf 'here is the code you asked for\n'
+else
+  printf '<<<<<<< FILE calculator.js\nfunction add(a, b) { return a + b; }\nmodule.exports = { add };\n>>>>>>> ENDFILE\n'
+fi
+EOF
+chmod +x "$WORK/format-model.sh"
+(
+  cd "$FORMAT_REPO"
+  PIPELINE_DS_COMMAND="$WORK/format-model.sh" PIPELINE_FAKE_COUNT="$FORMAT_COUNT" \
+    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/format-code.log" 2>&1
+  [[ "$(cat "$FORMAT_COUNT")" == 2 ]]
+  grep -Fq 'PASS s1' "$WORK/format-code.log"
+)
+
+# Re-asks are bounded, and exhausting them says so rather than blaming the code.
+UNUSABLE_REPO="$WORK/unusable"
+make_node_repo "$UNUSABLE_REPO" "$(cat <<'EOF'
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { add } = require('../calculator');
+test('adds_numbers', () => assert.equal(add(2, 3), 5));
+EOF
+)"
+cat > "$UNUSABLE_REPO/.pipeline/plan_final.json" <<'EOF'
+{"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
+EOF
+UNUSABLE_COUNT="$WORK/unusable.count"
+cat > "$WORK/unusable-model.sh" <<'EOF'
+#!/usr/bin/env bash
+count=0
+[[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
+printf '%s\n' "$((count + 1))" > "$PIPELINE_FAKE_COUNT"
+printf 'no blocks here\n'
+EOF
+chmod +x "$WORK/unusable-model.sh"
+(
+  cd "$UNUSABLE_REPO"
+  rc=0
+  PIPELINE_MAX_FORMAT_RETRIES=1 \
+    PIPELINE_DS_COMMAND="$WORK/unusable-model.sh" PIPELINE_FAKE_COUNT="$UNUSABLE_COUNT" \
+    "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/unusable-code.log" 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  [[ "$(cat "$UNUSABLE_COUNT")" == 2 ]]
+  grep -Fq 'never produced usable output' .pipeline/ESCALATE
   git diff --quiet
 )
 
-# An out-of-range cap is a configuration error, not a silent fallback.
-(
-  cd "$CAP_REPO"
-  rc=0
-  PIPELINE_MAX_ATTEMPTS=9 "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/cap-bad.log" 2>&1 || rc=$?
-  [[ "$rc" == 1 ]]
-  grep -Fq 'PIPELINE_MAX_ATTEMPTS must be 1, 2, or 3' "$WORK/cap-bad.log"
-)
-
-echo "attempt cap tests passed"
+echo "single graded attempt tests passed"
 
 # --- symbol_index.sh ---------------------------------------------------------
 

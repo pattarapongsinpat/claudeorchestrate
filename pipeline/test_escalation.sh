@@ -41,22 +41,25 @@ cat > "$WORK/retry-model.sh" <<'EOF'
 #!/usr/bin/env bash
 count=0
 [[ -f "$PIPELINE_FAKE_COUNT" ]] && count=$(cat "$PIPELINE_FAKE_COUNT")
-count=$((count + 1))
-printf '%s\n' "$count" > "$PIPELINE_FAKE_COUNT"
-if ((count == 1)); then body='function add(left, right) { return left - right; }'; else body='function add(left, right) { return left + right; }'; fi
-printf '<<<<<<< FILE calculator.js\n%s\nmodule.exports = { add };\n>>>>>>> ENDFILE\n' "$body"
+printf '%s\n' "$((count + 1))" > "$PIPELINE_FAKE_COUNT"
+printf '<<<<<<< FILE calculator.js\nfunction add(left, right) { return left - right; }\nmodule.exports = { add };\n>>>>>>> ENDFILE\n'
 EOF
 chmod +x "$WORK/retry-model.sh"
 (
   cd "$RETRY_REPO"
   mkdir -p .pipeline/logs
+  rc=0
   PIPELINE_DS_COMMAND="$WORK/retry-model.sh" PIPELINE_FAKE_COUNT="$RETRY_COUNT" \
-    "$PIPELINE_HOME/pipeline/code.sh" s1 | tee .pipeline/logs/s1.log
-  [[ "$(cat "$RETRY_COUNT")" == 2 ]]
-  grep -Fq -- '--- test output: attempt 1 ---' .pipeline/logs/s1.log
+    "$PIPELINE_HOME/pipeline/code.sh" s1 > .pipeline/logs/s1.log 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  # A failed assertion is graded once and escalates; it is not re-asked.
+  [[ "$(cat "$RETRY_COUNT")" == 1 ]]
+  grep -Fq -- '--- test output ---' .pipeline/logs/s1.log
   grep -Fq 'Expected values to be strictly equal' .pipeline/logs/s1.log
-  "$PIPELINE_HOME/pipeline/run_tests.sh" adds_numbers >/dev/null
-  "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 'needed more than one attempt'
+  cp .pipeline/step_status.json .pipeline/status_s1.json 2>/dev/null || true
+  mkdir -p .pipeline/status && cp .pipeline/step_status.json .pipeline/status/s1.json
+  printf '%s\n' '{"run_base":"x","steps":{"s1":{"status":"escalated","attempts":1,"ever_escalated":true}}}' > .pipeline/done.json
+  "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 's1 escalated during this run'
 )
 
 ESCALATE_REPO="$WORK/escalate"
@@ -76,9 +79,9 @@ chmod +x "$WORK/escalate-model.sh"
   PIPELINE_DS_COMMAND="$WORK/escalate-model.sh" PIPELINE_FAKE_COUNT="$ESCALATE_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 >/dev/null 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
-  [[ "$(cat "$ESCALATE_COUNT")" == 3 ]]
+  [[ "$(cat "$ESCALATE_COUNT")" == 3 ]]  # scope violations are re-asked, then give up
   [[ -f .pipeline/ESCALATE ]]
-  grep -Fq 'exhausted 3 iterations' .pipeline/ESCALATE
+  grep -Fq 'never produced usable output' .pipeline/ESCALATE
   [[ ! -e outside.js ]]
   git diff --quiet
 )
@@ -170,7 +173,7 @@ chmod +x "$WORK/resume-model.sh"
   PIPELINE_DS_COMMAND="$WORK/resume-model.sh" PIPELINE_S1_COUNT="$WORK/s1.count" PIPELINE_S2_COUNT="$WORK/s2.count" \
     "$PIPELINE_HOME/pipeline/waves.sh" >/dev/null 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
-  [[ "$(cat "$WORK/s1.count")" == 3 ]]
+  [[ "$(cat "$WORK/s1.count")" == 3 ]]  # one graded call plus two re-asks for the scope violation
   [[ "$(cat "$WORK/s2.count")" == 1 ]]
   jq -e '.steps.s1.status == "escalated" and .steps.s2.status == "done"' .pipeline/done.json >/dev/null
 
@@ -183,4 +186,4 @@ chmod +x "$WORK/resume-model.sh"
   "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 's1 escalated during this run'
 )
 
-echo "retry and escalation tests passed"
+echo "escalation tests passed"
