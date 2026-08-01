@@ -19,6 +19,15 @@ OUT=.pipeline/repair_ctx.md
 mapfile -t STEPS < <(jq -r '.steps | to_entries[] | select(.value.status == "escalated") | .key' "$STATE" 2>/dev/null | tr -d '\r')
 ((${#STEPS[@]})) || { echo "no escalated step in $STATE" >&2; exit 1; }
 
+MAXTESTLINES=800
+TEST_FILE=$(jq -r '.generated_test_file // ""' .pipeline/toolchain.json 2>/dev/null | tr -d '\r')
+mapfile -t ALL_TESTS < <(
+  for s in "${STEPS[@]}"; do
+    jq -r --arg id "$s" '.steps[] | select(.id == $id) | .tests[]?' "$PLAN" | tr -d '\r'
+  done
+)
+((${#ALL_TESTS[@]})) || ALL_TESTS=(".")
+
 # The routing gate resolves `.claude/routing-ack` against the working directory,
 # which during a run is the project, not the runtime. Writing it here keeps the
 # repair to one step and keeps the ack inside its freshness window, and the
@@ -55,6 +64,34 @@ grep -Fqx '/.claude/routing-ack' "$EXCLUDE" 2>/dev/null || printf '/.claude/rout
   echo '```'
   cat .pipeline/ESCALATE
   echo '```'
+  echo
+
+  # The coder never sees this file, which is why it can fail a step for reasons no
+  # amount of rewriting fixes — an exact error string it had to guess, a field name
+  # stated nowhere else. Opus can read it, so the brief hands it over rather than
+  # making the repair go looking. It stays read-only: a repair that edits its
+  # grader is refused by repair_done.sh.
+  echo "## Mapped tests — READ ONLY, editing these is refused"
+  if [[ -n "$TEST_FILE" && -f "$TEST_FILE" ]]; then
+    echo "### $TEST_FILE"
+    echo '```'
+    if (( $(wc -l < "$TEST_FILE") <= MAXTESTLINES )); then
+      cat "$TEST_FILE"
+    else
+      # The declaration line alone is worthless here — the assertion is the whole
+      # reason to read the file — so the match carries its body with it.
+      echo "[file exceeds $MAXTESTLINES lines — showing the mapped tests with context]"
+      grep -nE -A 25 "$(IFS='|'; echo "${ALL_TESTS[*]}")" "$TEST_FILE" || true
+    fi
+    echo '```'
+    echo
+    echo "If the assertion here cannot be satisfied by any implementation within"
+    echo "files_allowed, stop and say so. Do not bend the implementation to a test"
+    echo "that is wrong, and do not edit the test."
+  else
+    echo "No generated test file for this toolchain — the step ran against the"
+    echo "existing suite. Read the tests named in the step's \`tests\` array."
+  fi
 } > "$OUT"
 
 printf '%s\n' "${STEPS[@]}"

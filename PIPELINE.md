@@ -133,6 +133,14 @@ toolchains write `.pipeline/HALT` with the reason.
   entry makes `waves.sh` skip a step that was never implemented. `ever_escalated`
   survives the repair, so `review_trigger.sh` still demands the Opus review and
   the isolated verify subagent still gives the one independent verdict.
+- Put the mapped test source in the repair brief. The coder never sees the test
+  file, so it can fail a step for a reason no rewrite fixes: an exact error string
+  it had to guess, a field name stated nowhere else. Opus can read that file, and
+  that asymmetry is most of what the repair stage is for, so `repair_ctx.sh` hands
+  it over instead of making the repair go looking. Oversized files fall back to
+  the mapped tests with 25 lines of context, because the declaration line without
+  its assertion answers nothing. The file stays read-only; `repair_done.sh`
+  refuses a repair that edits its own grader.
 - Enforce the repair budget in `repair_done.sh`, not in the instructions.
   `PIPELINE_MAX_REPAIRS`, default 2, counts `repaired_by_opus` entries in
   `done.json` and refuses beyond it. Left as prose the stage quietly becomes

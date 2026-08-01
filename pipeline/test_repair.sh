@@ -72,6 +72,9 @@ chmod +x "$WORK/model.sh"
   grep -Fq 'files_allowed' .pipeline/repair_ctx.md
   grep -Fq 'function add(left, right) { return 0; }' .pipeline/repair_ctx.md
   grep -Fq 'Why the coder gave up' .pipeline/repair_ctx.md
+  # The coder never sees the test file, so the repair must be handed it.
+  grep -Fq 'READ ONLY' .pipeline/repair_ctx.md
+  grep -Fq "assert.equal(add(2, 3), 5)" .pipeline/repair_ctx.md
   # The brief covers the failed step only.
   ! grep -Fq '## Step s2' .pipeline/repair_ctx.md
   # The routing gate resolves the ack against the project, so repair_ctx writes it
