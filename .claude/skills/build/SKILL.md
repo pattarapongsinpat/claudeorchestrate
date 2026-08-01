@@ -106,6 +106,15 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
    budget, stop and report: that many failures means the plan or the generated
    tests are wrong, and repairing them one by one hides it.
 
+   e. If the brief shows the mapped test is what is wrong — it asserts something
+      no implementation within `files_allowed` can satisfy — do not repair and do
+      not edit the test. Run pipeline script `restart_run` with a one-line reason.
+      It resets to the run base, tags the abandoned commits, archives the failing
+      tests, and clears the plan and the tests while keeping the request and the
+      intent. Then go back to step 3 and continue the workflow from there: the
+      tester runs again from the request and the spec, independently of what
+      failed. One restart per request; on refusal, stop and report.
+
 8. Run pipeline script `final_check`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
 
 9. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.

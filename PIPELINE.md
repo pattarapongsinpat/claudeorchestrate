@@ -133,6 +133,18 @@ toolchains write `.pipeline/HALT` with the reason.
   entry makes `waves.sh` skip a step that was never implemented. `ever_escalated`
   survives the repair, so `review_trigger.sh` still demands the Opus review and
   the isolated verify subagent still gives the one independent verdict.
+- Restart the run when the tests are what failed; never edit them to fit. The
+  cheap way to make a test pass is to change what it asserts, so `restart_run.sh`
+  regenerates instead: it resets to the run base, tags the abandoned commits,
+  archives the failing tests and the reason under `.pipeline/attempt-N`, and
+  clears the plan and the tests while keeping the request and the intent, which
+  did not change. The tester then runs again from the request and the spec,
+  independently of the plan and of whatever the last attempt wrote, so a bad
+  assertion is redrawn rather than bent. One restart per request
+  (`PIPELINE_MAX_RESTARTS`): a second bad test set points at the spec or the
+  intent, and regenerating again will not find that. The new test path is stamped
+  from a freshly detected toolchain, because restamping the current one appends to
+  the previous stamp and every restart lengthens the name.
 - Put the mapped test source in the repair brief. The coder never sees the test
   file, so it can fail a step for a reason no rewrite fixes: an exact error string
   it had to guess, a field name stated nowhere else. Opus can read that file, and
@@ -224,6 +236,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | `.pipeline/tests_spec.md` | Generated tests, existing-suite context, or the judgment-fallback reason |
 | `.pipeline/plan_final.json` | Claude-gated steps, dependencies, and exact test names |
 | `.pipeline/repair_ctx.md` | Brief for the Opus repair of an escalated step |
+| `.pipeline/attempt-N/` | Plan, tests, and reason of an abandoned attempt |
 | `.pipeline/verify.md` | Final ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
 
 ## Commands
@@ -263,6 +276,10 @@ brief, the five refusals in `repair_done.sh` (nothing changed, out of allowlist,
 test file edited, manifest edited, mapped tests still failing), the exhausted
 repair budget, the accepted repair, and the `waves.sh` resume that does not
 re-run the repaired step.
+
+`pipeline/test_restart.sh` covers `restart_run.sh` without the API: what it
+resets, what it keeps, the tag and archive of the abandoned attempt, the single
+unstacked test-path stamp, and the one-restart budget.
 
 `pipeline/test_verify.sh` checks ACCEPT, DRIFT, and malformed verifier outputs.
 

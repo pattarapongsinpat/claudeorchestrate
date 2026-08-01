@@ -38,6 +38,12 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
       allowlist, manifests, test files, and mapped tests, then commits and marks
       the step done. On REFUSED, fix the cause; never hand-edit `done.json`.
    d. Re-run pipeline script `waves` to resume the remaining steps.
+   e. If the mapped test is the thing that is wrong — no implementation within
+      `files_allowed` can satisfy it — do not repair and do not edit it. Run
+      pipeline script `restart_run` with a one-line reason, then resume from
+      step 2 (plan and tests). It resets to the run base, tags the abandoned
+      commits, archives the failing tests, and keeps the request and intent.
+      One restart per request.
    `repair_done` enforces two repairs per run. When it refuses on the budget,
    stop and report — that many failures points at the plan or the generated
    tests, not at the coder.
