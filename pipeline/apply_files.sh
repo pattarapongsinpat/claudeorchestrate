@@ -5,10 +5,22 @@
 # printed and the script exits non-zero, so the caller reports a scope violation
 # without any out-of-scope file ever touching disk.
 #
-# Block format (exact):
+# Block format:
 #   <<<<<<< FILE <path>
 #   <full file contents>
 #   >>>>>>> ENDFILE
+#
+# The marker runs are matched as 4-12 repeats, not exactly 7. A model that
+# emits six "<" produces a response that is complete and correct in every other
+# respect, and an exact match turned that into zero parsed blocks, no write, and
+# an "exhausted 3 iterations" escalation whose feedback said NO FILE BLOCKS
+# FOUND — a formatting slip reported as a coding failure, at three API calls a
+# time. The literal FILE and ENDFILE keywords are what make a marker a marker,
+# so requiring an exact run length buys no safety.
+#
+# A single Markdown code fence wrapping the body is also tolerated, for the same
+# reason: models fence code by habit, and the fence would otherwise land in the
+# written file as line 1.
 #
 # Exit codes: 0 applied, 1 scope violation, 2 unsafe allowlist, 3 malformed output.
 set -euo pipefail
@@ -37,7 +49,11 @@ for f in "$@"; do
   OK["$p"]=1
 done
 
-viol=0; malformed=0; path=""; tmp=""; write_tmp=""
+OPEN_RE='^<{4,12}[[:space:]]+FILE[[:space:]]+(.+)$'
+CLOSE_RE='^>{4,12}[[:space:]]+ENDFILE[[:space:]]*$'
+FENCE_RE='^```[A-Za-z0-9_+#-]*$'
+
+viol=0; malformed=0; path=""; tmp=""; write_tmp=""; fenced=0; body=0
 # Use `if`, not `&&`: a trailing `&& rm` that short-circuits returns 1, and an
 # EXIT trap's non-zero status leaks out as the script's exit code.
 cleanup(){
@@ -48,17 +64,20 @@ trap cleanup EXIT
 
 while IFS= read -r line || [[ -n "$line" ]]; do
   marker="$(norm "$line")"
-  case "$marker" in
-    "<<<<<<< FILE "*)
+  if [[ "$marker" =~ $OPEN_RE ]]; then
       if [[ -n "$path" ]]; then
         echo "unterminated block: $path (missing >>>>>>> ENDFILE)" >&2
         malformed=1; rm -f "$tmp"; tmp=""
       fi
-      path="$(norm "${marker#<<<<<<< FILE }")"
+      path="$(norm "${BASH_REMATCH[1]}")"
       tmp="$(mktemp)"; : > "$tmp"
-      ;;
-    ">>>>>>> ENDFILE")
+      fenced=0; body=0
+  elif [[ "$marker" =~ $CLOSE_RE ]]; then
       if [[ -z "$path" ]]; then continue; fi
+      # Drop the closing fence of a body the model wrapped in Markdown.
+      if ((fenced)) && [[ "$(norm "$(tail -n 1 "$tmp")")" =~ $FENCE_RE ]]; then
+        sed -i '$d' "$tmp"
+      fi
       if [[ -n "${OK[$path]:-}" ]]; then
         has_symlink_component "$path" && { echo "refusing symlinked output path: $path" >&2; exit 2; }
         parent=$(dirname "$path")
@@ -71,12 +90,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
       else
         echo "$path"; viol=1
       fi
-      rm -f "$tmp"; tmp=""; path=""
-      ;;
-    *)
-      [[ -n "$path" ]] && printf '%s\n' "$line" >> "$tmp"
-      ;;
-  esac
+      rm -f "$tmp"; tmp=""; path=""; fenced=0; body=0
+  elif [[ -n "$path" ]]; then
+      # An opening fence on the first body line is the model's habit, not content.
+      if ((body == 0)) && [[ "$marker" =~ $FENCE_RE ]]; then
+        fenced=1; body=1; continue
+      fi
+      body=1
+      printf '%s\n' "$line" >> "$tmp"
+  fi
 done < "$OUT"
 
 # A block left open at EOF means a truncated response, not an applied file.

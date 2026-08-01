@@ -137,6 +137,15 @@ toolchains write `.pipeline/HALT` with the reason.
   model. On truncation `ds.sh` now reports content and reasoning lengths and
   names the cause, because "split the step" is the wrong fix for a runaway
   reasoning trace.
+- Parse the coder's file blocks by keyword, not by exact delimiter width.
+  `apply_files.sh` accepts a 4-12 character marker run and unwraps a single
+  Markdown fence around the body. A model that emitted six `<` instead of seven
+  once produced a complete, correct 500-line file that parsed as zero blocks:
+  nothing was written, the step consumed all three attempts, and the feedback
+  said NO FILE BLOCKS FOUND, which reads like a coding failure rather than a
+  formatting slip. `FILE` and `ENDFILE` are what identify a marker, so an exact
+  run length bought no safety. Content that only resembles a marker, such as a
+  `<<<<<<< HEAD` conflict sample, is still body text.
 - Give the tester the specification. `tests.sh` includes every path in
   `spec_files` from `intent.json`; absent that, it falls back to tracked markdown
   paths referenced from `intent.md`. Without this the tester only sees the
@@ -179,6 +188,11 @@ dispatch without calling the DeepSeek API.
 
 Run `pipeline/test_safety.sh` to validate plan identifiers, dependency
 references, traversal rejection, and symlink write protection.
+
+Run `pipeline/test_apply_files.sh` to validate coder-output parsing without the
+API: short, long, and mismatched marker runs, Markdown-fence unwrapping against
+fences that are real content, and the unchanged refusals for an unterminated
+block and an out-of-scope path.
 
 With a configured API key, `pipeline/test_api.sh` verifies the DeepSeek API
 wrapper and `pipeline/test_e2e_node.sh` runs a real red-to-green Node coding loop
