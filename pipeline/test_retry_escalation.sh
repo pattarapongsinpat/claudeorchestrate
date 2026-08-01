@@ -50,10 +50,7 @@ chmod +x "$WORK/retry-model.sh"
 (
   cd "$RETRY_REPO"
   mkdir -p .pipeline/logs
-  # This case is about the retry ladder, so it pins the cap rather than inheriting
-  # the single-attempt default.
-  PIPELINE_MAX_ATTEMPTS=3 \
-    PIPELINE_DS_COMMAND="$WORK/retry-model.sh" PIPELINE_FAKE_COUNT="$RETRY_COUNT" \
+  PIPELINE_DS_COMMAND="$WORK/retry-model.sh" PIPELINE_FAKE_COUNT="$RETRY_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 | tee .pipeline/logs/s1.log
   [[ "$(cat "$RETRY_COUNT")" == 2 ]]
   grep -Fq -- '--- test output: attempt 1 ---' .pipeline/logs/s1.log
@@ -76,8 +73,7 @@ chmod +x "$WORK/escalate-model.sh"
 (
   cd "$ESCALATE_REPO"
   rc=0
-  PIPELINE_MAX_ATTEMPTS=3 \
-    PIPELINE_DS_COMMAND="$WORK/escalate-model.sh" PIPELINE_FAKE_COUNT="$ESCALATE_COUNT" \
+  PIPELINE_DS_COMMAND="$WORK/escalate-model.sh" PIPELINE_FAKE_COUNT="$ESCALATE_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 >/dev/null 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
   [[ "$(cat "$ESCALATE_COUNT")" == 3 ]]
@@ -171,10 +167,7 @@ chmod +x "$WORK/resume-model.sh"
 (
   cd "$RESUME_REPO"
   rc=0
-  # s1 is meant to exhaust the full ladder here, so the cap is pinned rather than
-  # inherited from the single-attempt default.
-  PIPELINE_MAX_ATTEMPTS=3 \
-    PIPELINE_DS_COMMAND="$WORK/resume-model.sh" PIPELINE_S1_COUNT="$WORK/s1.count" PIPELINE_S2_COUNT="$WORK/s2.count" \
+  PIPELINE_DS_COMMAND="$WORK/resume-model.sh" PIPELINE_S1_COUNT="$WORK/s1.count" PIPELINE_S2_COUNT="$WORK/s2.count" \
     "$PIPELINE_HOME/pipeline/waves.sh" >/dev/null 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
   [[ "$(cat "$WORK/s1.count")" == 3 ]]

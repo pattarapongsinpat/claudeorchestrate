@@ -114,14 +114,17 @@ toolchains write `.pipeline/HALT` with the reason.
   result and the third call only reproduces it; the marker says to suspect the
   test. The signature strips digits and hex runs, so a random id in the message
   does not disguise a repeat.
-- Cap coder calls per step at `PIPELINE_MAX_ATTEMPTS`, default 1, valid values 1
-  to 3. The step is graded against a mapped test, so a failed attempt already
-  carries the evidence an Opus escalation needs; two more DeepSeek samples mostly
-  buy time. Set it to 3 to restore the full ladder when a run is worth the extra
-  calls. The ladder itself is indexed by attempt and does not change with the cap:
-  attempt 1 on flash, attempts 2 and 3 on pro. A value outside 1-3 is a
-  configuration error and stops the step. The repeated-signature guard above still
-  applies whenever the cap allows a second attempt.
+- Cap coder calls per step at `PIPELINE_MAX_ATTEMPTS`, default 3, valid values 1
+  to 3. A DeepSeek retry is far cheaper than the Opus turn it avoids, so an
+  attempt-2 pass on pro costs a fraction of the repair it replaces. This was
+  briefly 1, on the reasoning that the extra attempts were wasted whenever the
+  step was unwinnable — true while an escalation ended the run and a human picked
+  it up, and no longer true now that Opus repairs a step the coder got wrong and
+  `restart_run.sh` regenerates tests that were wrong. The ladder is indexed by
+  attempt, not by the cap: attempt 1 on flash, attempts 2 and 3 on pro, so
+  lowering the cap truncates it rather than reassigning models. A value outside
+  1-3 is a configuration error and stops the step. The repeated-signature guard
+  below still cuts the ladder short when another sample will not help.
 - Repair an escalated step in the main Opus session, and grade that repair with a
   script. The session already holds the request, the intent, and the plan, so a
   subagent would pay for that context again to know less. But it is also the

@@ -92,11 +92,16 @@ failure_signature() {
 }
 PREVIOUS_SIGNATURE=""
 
-# How many coder calls a step gets. One is the default: the step is graded against
-# a mapped test, so a single attempt either satisfies it or produces a failure an
-# Opus escalation reads faster than two more DeepSeek samples do. Raise it to 3 to
-# restore the full flash-then-pro-then-pro ladder.
-MAX_ATTEMPTS="${PIPELINE_MAX_ATTEMPTS:-1}"
+# How many coder calls a step gets. Three, because a DeepSeek retry is far cheaper
+# than the Opus turn it avoids: an attempt-2 pass on pro costs a fraction of the
+# repair it replaces. This was briefly 1, on the reasoning that extra attempts were
+# wasted whenever the step was unwinnable — true then, because an escalation ended
+# the run and a human picked it up. It no longer does: Opus repairs a step the
+# coder got wrong, and restart_run.sh regenerates tests that were wrong, so the
+# ladder costs cheap calls rather than stalled runs. Lower it when a run is not
+# worth the extra calls; the guards below still cut it short when the evidence
+# says another sample will not help.
+MAX_ATTEMPTS="${PIPELINE_MAX_ATTEMPTS:-3}"
 [[ "$MAX_ATTEMPTS" =~ ^[1-3]$ ]] || {
   echo "PIPELINE_MAX_ATTEMPTS must be 1, 2, or 3 (got: $MAX_ATTEMPTS)" >&2; exit 1;
 }

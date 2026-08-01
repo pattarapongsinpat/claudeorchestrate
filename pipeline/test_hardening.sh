@@ -134,9 +134,7 @@ chmod +x "$WORK/same-model.sh"
   rc=0
   # The log goes outside the repository: code.sh refuses to start on a dirty tree,
   # and an untracked log file inside it counts.
-  # The point is that the loop stops at two of three, so the cap is pinned.
-  PIPELINE_MAX_ATTEMPTS=3 \
-    PIPELINE_DS_COMMAND="$WORK/same-model.sh" PIPELINE_FAKE_COUNT="$SAME_COUNT" \
+  PIPELINE_DS_COMMAND="$WORK/same-model.sh" PIPELINE_FAKE_COUNT="$SAME_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/same-code.log" 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
   [[ "$(cat "$SAME_COUNT")" == 2 ]]
@@ -175,8 +173,7 @@ EOF
 chmod +x "$WORK/progress-model.sh"
 (
   cd "$PROGRESS_REPO"
-  PIPELINE_MAX_ATTEMPTS=3 \
-    PIPELINE_DS_COMMAND="$WORK/progress-model.sh" PIPELINE_FAKE_COUNT="$PROGRESS_COUNT" \
+  PIPELINE_DS_COMMAND="$WORK/progress-model.sh" PIPELINE_FAKE_COUNT="$PROGRESS_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/progress-code.log" 2>&1
   [[ "$(cat "$PROGRESS_COUNT")" == 3 ]]
   grep -Fq 'PASS s1' "$WORK/progress-code.log"
@@ -186,8 +183,10 @@ echo "early escalation tests passed"
 
 # --- attempt cap -------------------------------------------------------------
 
-# The default is one attempt. The cap truncates the ladder without changing it, so
-# that attempt is still the flash one.
+# A lowered cap truncates the ladder without changing it, so the single attempt it
+# allows is still the flash one — the ladder is indexed by attempt, not by cap.
+# The default of three is covered by the progress case above, which takes all
+# three when the failure keeps changing.
 CAP_REPO="$WORK/cap"
 make_node_repo "$CAP_REPO" "$(cat <<'EOF'
 const test = require('node:test');
@@ -212,7 +211,8 @@ chmod +x "$WORK/cap-model.sh"
 (
   cd "$CAP_REPO"
   rc=0
-  PIPELINE_DS_COMMAND="$WORK/cap-model.sh" PIPELINE_FAKE_COUNT="$CAP_COUNT" \
+  PIPELINE_MAX_ATTEMPTS=1 \
+    PIPELINE_DS_COMMAND="$WORK/cap-model.sh" PIPELINE_FAKE_COUNT="$CAP_COUNT" \
     "$PIPELINE_HOME/pipeline/code.sh" s1 > "$WORK/cap-code.log" 2>&1 || rc=$?
   [[ "$rc" == 1 ]]
   [[ "$(cat "$CAP_COUNT")" == 1 ]]
