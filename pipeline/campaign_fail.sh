@@ -25,6 +25,23 @@ MAX_ATTEMPTS="${PIPELINE_MAX_UNIT_ATTEMPTS:-2}"
 # decision nobody is there to supply, and the campaign is the stage that cannot
 # ask. The same failure twice is a second run of the same inputs. Out of attempts
 # is out of attempts.
+# Keep the evidence before anything deletes it. The subagent that ran the unit
+# reports one line, and the diagnosis is all in .pipeline — the escalated step's
+# diff, the coder log, the raw responses, the regression output — which the next
+# unit's run.sh deletes. Archived, the retry can carry the real failure and a
+# stopped campaign can be read rather than guessed at.
+ARCHIVE=".campaign/failed/$ID-$ATTEMPTS"
+rm -rf "$ARCHIVE"
+mkdir -p "$ARCHIVE"
+if [[ -d .pipeline ]]; then
+  for f in .pipeline/*; do
+    [[ -e "$f" ]] || continue
+    [[ "$(basename "$f")" == wt ]] && continue   # live worktrees, not evidence
+    cp -r "$f" "$ARCHIVE/" 2>/dev/null || true
+  done
+fi
+printf '%s\n' "$ENTRY" > "$ARCHIVE/reason.txt"
+
 STOP=""
 [[ "$CLASS" == halt ]] && STOP="the unit needs a decision no answer in the brief supplies"
 [[ -z "$STOP" && "$ENTRY" == "$PREV" ]] && STOP="the retry failed the same way; another attempt repeats it"
@@ -41,6 +58,7 @@ if [[ -n "$STOP" ]]; then
   rm -f .campaign/unit_request.txt
   echo "STOPPED at $ID: $STOP"
   echo "  $ENTRY"
+  echo "evidence: $ARCHIVE"
   echo "commits are left in place; nothing was reset"
   exit 3
 fi
@@ -61,5 +79,6 @@ rm -f .campaign/unit_request.txt .campaign/unit_base
 
 echo "RETRY $ID: worktree back at $BASE"
 echo "  $ENTRY"
+echo "evidence: $ARCHIVE"
 echo "next: run campaign_next again"
 exit 2

@@ -57,6 +57,23 @@ git rev-parse HEAD > .campaign/unit_base
     echo "## Previous attempt failed (verbatim)"
     echo
     printf '%s\n' "$PREV"
+    # The one-line class and reason came from the subagent's summary. The real
+    # diagnosis is in the archive campaign_fail kept, and a retry that cannot see
+    # it re-runs the same unit knowing only that it failed.
+    PREVDIR=""
+    for d in .campaign/failed/"$ID"-*; do [[ -d "$d" ]] && PREVDIR="$d"; done
+    if [[ -n "$PREVDIR" ]]; then
+      for f in ESCALATE REGRESSION verify.md; do
+        if [[ -s "$PREVDIR/$f" ]]; then
+          echo
+          echo "### $f"
+          echo
+          head -n "${PIPELINE_FAILURE_EXCERPT_LINES:-40}" "$PREVDIR/$f"
+        fi
+      done
+      echo
+      echo "Full evidence from that attempt is in $PREVDIR."
+    fi
   fi
 } > .campaign/unit_request.txt
 

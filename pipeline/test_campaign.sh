@@ -114,17 +114,32 @@ P campaign_done u1 >/dev/null
 KEPT=$(git rev-parse HEAD)
 P campaign_next >/dev/null
 echo half >> file.txt; git commit -qam "u2 partial"
+# The evidence the next unit's run.sh would delete.
+mkdir -p .pipeline/logs .pipeline/wt/u2
+echo "step s1 failed the assertion" > .pipeline/ESCALATE
+echo "DRIFT: built the wrong endpoint" > .pipeline/verify.md
+echo "coder output" > .pipeline/logs/s1.log
+echo live > .pipeline/wt/u2/scratch
 rc=0; P campaign_fail u2 regression "suite red" >/dev/null || rc=$?
 [[ "$rc" == 2 ]]
+ARCH=.campaign/failed/u2-1
+[[ -f "$ARCH/ESCALATE" && -f "$ARCH/verify.md" && -f "$ARCH/logs/s1.log" ]]
+grep -Fq 'regression: suite red' "$ARCH/reason.txt"
+[[ ! -e "$ARCH/wt" ]]
 [[ "$(git rev-parse HEAD)" == "$KEPT" ]]
 [[ -n "$(git tag -l 'campaign-abandoned-u2-*')" ]]
 [[ "$(jq -r '.units[1].status' .campaign/state.json)" == pending ]]
 [[ "$(jq -r .status .campaign/state.json)" == running ]]
 [[ ! -e .campaign/unit_request.txt ]]
 
-# The retry sees why the last attempt failed, verbatim.
+# The retry sees why the last attempt failed, not just that it did. The subagent
+# reported one line; the diagnosis was in .pipeline and is now in the archive.
+rm -rf .pipeline
 P campaign_next >/dev/null
 grep -Fq 'regression: suite red' .campaign/unit_request.txt
+grep -Fq 'step s1 failed the assertion' .campaign/unit_request.txt
+grep -Fq 'DRIFT: built the wrong endpoint' .campaign/unit_request.txt
+grep -Fq "$ARCH" .campaign/unit_request.txt
 [[ "$(jq -r '.units[1].attempts' .campaign/state.json)" == 2 ]]
 
 # Failing the same way twice stops instead of spending the last attempt.
@@ -133,6 +148,10 @@ rc=0; P campaign_fail u2 regression "suite red" >/dev/null || rc=$?
 [[ "$(jq -r .status .campaign/state.json)" == stopped ]]
 [[ "$(jq -r '.units[1].status' .campaign/state.json)" == failed ]]
 [[ "$(git rev-parse HEAD)" == "$KEPT" ]]
+# A stopped campaign is the case where the evidence matters most, and the first
+# attempt's archive is not overwritten by the last one's.
+[[ -f .campaign/failed/u2-2/reason.txt ]]
+[[ -f .campaign/failed/u2-1/ESCALATE ]]
 rc=0; P campaign_next >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 1 ]]
 

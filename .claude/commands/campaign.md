@@ -48,6 +48,18 @@ gives the tester nothing to write tests from.
 Then run pipeline script `validate_backlog`. It checks the shape and builds
 `.campaign/state.json`. Fix what it rejects; do not hand-write the state file.
 
+Then run pipeline script `check_backlog`. It sends DeepSeek the brief and the
+units, nothing else, and its exit code is authoritative: 0 continues, 2 means
+revise the named unit in `backlog.json` and re-run `validate_backlog` and
+`check_backlog`, 3 means the budget is spent and `.campaign/HALT` is written,
+1 means the verdict was malformed.
+
+Revising means adding the missing unit or dropping the invented one. It does not
+mean arguing with the verdict, and it does not mean editing the brief to fit the
+split. This is the only check on the split before it is built: the per-unit
+verifier judges each unit against its own text, which is the split restated, and
+the campaign verifier runs after every unit has already been committed.
+
 ## 4. Run the units
 
 Loop until the campaign ends:
@@ -73,6 +85,11 @@ d. On failure, run pipeline script `campaign_fail` with the unit id, the class,
    and the reason. Exit 2 means it reset the worktree to the unit's base and the
    unit gets another attempt, so go back to a. Exit 3 means the campaign stopped:
    report the unit, the reason, and the commits already in place.
+
+   `campaign_fail` archives that attempt's whole `.pipeline/` to
+   `.campaign/failed/<unit>-<attempt>/` before it resets, because the next unit's
+   `run.sh` deletes it. The retry's `unit_request.txt` carries an excerpt, and the
+   full evidence stays on disk. Read it when a campaign stops.
 
    Do not repair a failed unit yourself and do not edit its backlog entry to make
    it easier. The retry is the whole remedy the campaign has. Escalation inside a

@@ -55,6 +55,7 @@ toolchains write `.pipeline/HALT` with the reason.
 |---|---|
 | Intent | Claude Opus session |
 | Assumption check | `deepseek-v4-flash` (`PIPELINE_ASSUMPTIONS_MODEL`), request only |
+| Campaign split check | `deepseek-v4-flash` (`PIPELINE_BACKLOG_MODEL`), brief and units only |
 | Plan | `deepseek-v4-pro` |
 | Native tests | `deepseek-v4-pro`, unless Opus selects the judgment fallback |
 | Plan gate | Claude Opus session |
@@ -247,8 +248,9 @@ backlog and one result line per unit.
 1. `campaign_init.sh` requires a clean worktree and records the campaign base.
 2. Claude asks the question round once, for the whole campaign, and writes
    `.campaign/brief.txt` under every rule that governs `request.txt`.
-3. Claude decomposes the brief into `.campaign/backlog.json`, and
-   `validate_backlog.sh` checks it and builds `.campaign/state.json`.
+3. Claude decomposes the brief into `.campaign/backlog.json`.
+   `validate_backlog.sh` checks its shape and builds `.campaign/state.json`, then
+   `check_backlog.sh` has DeepSeek grade the split against the brief alone.
 4. `campaign_next.sh` writes `.campaign/unit_request.txt` and prints the unit id.
    Exit 3 means the backlog is finished.
 5. A fresh subagent runs `/build`. Intent finds the unit request and asks nothing.
@@ -271,8 +273,26 @@ backlog and one result line per unit.
   and carry the brief verbatim beside it. The assumption check and the final
   verifier read that file and nothing else, so an unmarked unit text is Claude's
   paraphrase being graded against itself — the laundering `intent.md` forbids.
+- Grade the split before any unit runs, not after all of them. The decomposition
+  is the highest-leverage reading in a campaign, and it was the only reading in
+  the pipeline with no independent check: each unit agrees with the split, and
+  the campaign verifier reads the diff after ten units are committed.
+  `check_backlog.sh` is `check_assumptions.sh` at campaign scale — DeepSeek, the
+  brief and the units and nothing else, `SOUND` or `UNSOUND`, the rejection count
+  is the file count (`PIPELINE_MAX_BACKLOG_REVISIONS`, default 1).
+- Reject scope, not division. How many units there are, where the lines fall, and
+  what order they run in cannot be judged without the repository, so the grading
+  prompt rejects only a unit the brief never asked for or a thing the brief asks
+  for that no unit builds. Setup and migration units are SOUND unnamed.
 - Retry a failed unit; do not repair it. `PIPELINE_MAX_UNIT_ATTEMPTS`, default 2.
   Escalation inside a unit is the build pipeline's own stage and already ran.
+- Archive the failed attempt's `.pipeline/` to `.campaign/failed/<unit>-<attempt>/`
+  before resetting. The subagent that ran the unit reports one line; the escalated
+  step's diff, the coder log, the raw responses, and the regression output are all
+  in `.pipeline`, and the next unit's `run.sh` deletes it. The retry's
+  `unit_request.txt` carries an excerpt (`PIPELINE_FAILURE_EXCERPT_LINES`, default
+  40) and the rest stays on disk, so a stopped campaign can be read and resumed
+  deliberately rather than guessed at.
 - Stop on the impossible, in the three forms a script can recognise: an intent
   HALT (the campaign is the stage that cannot ask, so the retry asks the same
   unanswerable question), the identical failure twice, and a spent budget.
@@ -301,6 +321,9 @@ backlog and one result line per unit.
 | `.pipeline/verify.md` | ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
 | `.campaign/brief.txt` | The campaign request and its one round of answers, verbatim |
 | `.campaign/backlog.json` | Ordered units, decomposed once |
+| `.campaign/backlog_verdict.md` | SOUND or UNSOUND verdict on the split |
+| `.campaign/backlog-N.md` | A rejected split verdict, one per spent revision |
+| `.campaign/failed/<unit>-<attempt>/` | The whole `.pipeline/` of a failed attempt, kept for the retry and for reading afterward |
 | `.campaign/state.json` | Unit status, attempts, commits, failures, stop reason |
 | `.campaign/unit_request.txt` | Brief plus the current unit, read by intent in place of asking |
 | `.campaign/verify.md` | ACCEPT or DRIFT on the whole campaign diff |
@@ -330,7 +353,8 @@ No API key required:
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
 | `test_assumptions.sh` | SOUND, UNSOUND, rejection archiving, revision budget, malformed output |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
-| `test_campaign.sh` | Backlog validation, state surviving `run.sh`, unit chaining, retry reset and tag, the three stop conditions, attempt budget |
+| `test_campaign.sh` | Backlog validation, state surviving `run.sh`, unit chaining, retry reset and tag, failure archive and retry excerpt, the three stop conditions, attempt budget |
+| `test_backlog.sh` | Split grading: SOUND, UNSOUND, rejection archiving, revision budget, malformed output, what the prompt is and is not shown |
 | `smoke_adapters.sh` | Each adapter's real toolchain against a hand-written test; skips uninstalled toolchains |
 
 API key required:
