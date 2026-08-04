@@ -66,6 +66,17 @@ A: Other — two, the endpoint is slow
 Record the option's own words, not your restatement of them, and mark an Other
 answer as one so a later stage can see the user wrote it rather than picked it.
 
+When `.campaign/unit_request.txt` exists and `.campaign/state.json` has
+`"status": "running"`, this run is one unit of a campaign. Copy that file to
+`request.txt` verbatim and ask nothing. The campaign asked its question round
+once, before any unit ran, and its answers are in the brief block that file
+already carries. Asking again per unit would be the same round repeated with the
+run already committed to a decomposition, and the answer could no longer change
+the backlog. Leave the block that marks the unit text as the pipeline's
+decomposition in place: the assumption check and the final verifier read this
+file and nothing else, and that marker is what tells them which part of it you
+wrote.
+
 When you cannot ask — an unattended run, no interactive channel — quote the
 conversation turns the request points at instead, under
 `## Referenced context (verbatim)`, in the same file. Quote, never summarize.

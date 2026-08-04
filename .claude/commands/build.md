@@ -12,6 +12,8 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    It asks one to three multiple-choice questions in one `AskUserQuestion` call
    and records the answers verbatim in request.txt. The first, confirming what
    to build, is mandatory. Only stage that asks.
+   Exception: a campaign unit. When `.campaign/unit_request.txt` exists and the
+   campaign is running, copy it verbatim and ask nothing.
    Stop on `.pipeline/HALT`: the request needs a decision no answer supplied.
    Intent may choose judgment mode only when behavioral tests require an
    unavailable host, hardware, or proprietary runtime. Record the exact reason.

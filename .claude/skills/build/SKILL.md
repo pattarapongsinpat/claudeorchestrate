@@ -75,6 +75,10 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
    once the plan and the tests exist, a question arrives after the run has
    already committed to a reading.
 
+   A campaign unit is the one exception: when `.campaign/unit_request.txt` exists
+   and the campaign is running, intent copies it verbatim and asks nothing. The
+   round was already spent, once, for the whole campaign.
+
 3. Run pipeline script `check_assumptions`. It sends DeepSeek the whole of
    `request.txt` and the intent's Assumptions section, nothing else, and its exit
    code is authoritative: 0 continues, 2 means revise the named assumption in

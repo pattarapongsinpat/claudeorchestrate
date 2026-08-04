@@ -21,6 +21,9 @@ always forces the full pipeline.
 The pipeline requires a clean worktree. It stops instead of committing or
 overwriting pre-existing changes.
 
+A request that does not fit one plan runs as a campaign instead: `/campaign`
+splits it once into build-sized units and runs the full pipeline on each.
+
 ## Supported project adapters
 
 | Language | Detection | Native runner | Test mode |
@@ -233,6 +236,54 @@ this list is the contract, not the history.
 - Keep raw DeepSeek responses under the ignored `.pipeline/raw`.
 - Preserve partial commits on drift or escalation.
 
+## Campaigns
+
+A request too large for one `/build` runs as a campaign: split once into
+build-sized units, each unit a full pipeline run on the previous unit's commit.
+The per-unit Opus work runs in a fresh subagent, so a long campaign does not
+accumulate context — the coder was never Claude, and the orchestrator keeps a
+backlog and one result line per unit.
+
+1. `campaign_init.sh` requires a clean worktree and records the campaign base.
+2. Claude asks the question round once, for the whole campaign, and writes
+   `.campaign/brief.txt` under every rule that governs `request.txt`.
+3. Claude decomposes the brief into `.campaign/backlog.json`, and
+   `validate_backlog.sh` checks it and builds `.campaign/state.json`.
+4. `campaign_next.sh` writes `.campaign/unit_request.txt` and prints the unit id.
+   Exit 3 means the backlog is finished.
+5. A fresh subagent runs `/build`. Intent finds the unit request and asks nothing.
+6. `campaign_done.sh` records the unit, or `campaign_fail.sh` retries it.
+7. A last isolated subagent renders ACCEPT or DRIFT on the whole campaign diff
+   against the brief. Unit commits are never collapsed.
+
+**Campaign invariants**
+
+- Campaign state lives in `.campaign/`, never `.pipeline/`, which `run.sh`
+  deletes at the start of every unit. That deletion is what makes units stack.
+- Decompose once. A unit that uncovers new work fails the campaign rather than
+  appending to the backlog: a scope that grows per unit has nothing checking it
+  against the brief. `PIPELINE_MAX_CAMPAIGN_UNITS`, default 12 — a longer
+  campaign is a request that was never narrowed.
+- Ask once, before any unit runs. Per-unit questions would repeat the same round
+  after the decomposition already committed to an answer, where no answer can
+  still change the backlog.
+- Mark the unit text as the pipeline's decomposition inside `unit_request.txt`,
+  and carry the brief verbatim beside it. The assumption check and the final
+  verifier read that file and nothing else, so an unmarked unit text is Claude's
+  paraphrase being graded against itself — the laundering `intent.md` forbids.
+- Retry a failed unit; do not repair it. `PIPELINE_MAX_UNIT_ATTEMPTS`, default 2.
+  Escalation inside a unit is the build pipeline's own stage and already ran.
+- Stop on the impossible, in the three forms a script can recognise: an intent
+  HALT (the campaign is the stage that cannot ask, so the retry asks the same
+  unanswerable question), the identical failure twice, and a spent budget.
+- Reset a retry to the unit's base, not the campaign base, and tag what it
+  abandons. Earlier units committed and are kept.
+- `campaign_done.sh` refuses a unit that produced no commit or left the tree
+  dirty. A reported success that changed nothing would walk the backlog to the
+  end having built none of it.
+- Verify the campaign against the brief at the end. Each unit's verifier judged
+  that unit against its own text, which is the decomposition, not the request.
+
 ## Main artifacts
 
 | Artifact | Purpose |
@@ -248,10 +299,16 @@ this list is the contract, not the history.
 | `.pipeline/repair_ctx.md` | Brief for the Opus repair of an escalated step |
 | `.pipeline/attempt-N/` | Plan, tests, and reason of an abandoned attempt |
 | `.pipeline/verify.md` | ACCEPT or DRIFT verdict, checked by `validate_verify.sh` |
+| `.campaign/brief.txt` | The campaign request and its one round of answers, verbatim |
+| `.campaign/backlog.json` | Ordered units, decomposed once |
+| `.campaign/state.json` | Unit status, attempts, commits, failures, stop reason |
+| `.campaign/unit_request.txt` | Brief plus the current unit, read by intent in place of asking |
+| `.campaign/verify.md` | ACCEPT or DRIFT on the whole campaign diff |
 
 ## Commands
 
 - `/build <request>` runs the full workflow.
+- `/campaign <request>` splits a large request into units and runs `/build` on each.
 - `/intent`, `/gate`, `/review`, `/verify` expose individual Claude stages.
 
 On Windows, `pipeline/invoke.ps1 <script> -Repo <project-root>` runs against an
@@ -273,6 +330,7 @@ No API key required:
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
 | `test_assumptions.sh` | SOUND, UNSOUND, rejection archiving, revision budget, malformed output |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
+| `test_campaign.sh` | Backlog validation, state surviving `run.sh`, unit chaining, retry reset and tag, the three stop conditions, attempt budget |
 | `smoke_adapters.sh` | Each adapter's real toolchain against a hand-written test; skips uninstalled toolchains |
 
 API key required:
