@@ -28,6 +28,8 @@ EOF
     git add .
     git commit -qm baseline
     "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+    # waves.sh refuses without a baseline, which check_baseline records in a real run.
+    "$PIPELINE_HOME/pipeline/baseline_stamp.sh" > .pipeline/baseline.sha
     cat > .pipeline/plan_final.json <<'EOF'
 {"steps":[{"id":"s1","description":"fix addition","files_allowed":["calculator.js"],"context_files":[],"tests":["adds_numbers"],"deps":[],"done_when":"add returns the sum"}]}
 EOF
@@ -142,6 +144,9 @@ EOF
   cd "$RESUME_REPO"
   git add multiplier.js test/pipeline_generated.test.js
   git commit -qm 'add second failing step'
+  # The test file really changed, so the fixture re-stamps exactly as the gate's
+  # second check_baseline does after it edits the generated tests.
+  "$PIPELINE_HOME/pipeline/baseline_stamp.sh" > .pipeline/baseline.sha
   git rev-parse HEAD > .pipeline/run_base
   cat > .pipeline/plan_final.json <<'EOF'
 {"steps":[

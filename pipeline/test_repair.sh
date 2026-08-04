@@ -29,6 +29,8 @@ EOF
   git add .
   git commit -qm baseline
   "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+  # waves.sh refuses without a baseline, which check_baseline records in a real run.
+  "$PIPELINE_HOME/pipeline/baseline_stamp.sh" > .pipeline/baseline.sha
   git rev-parse HEAD > .pipeline/run_base
   cat > .pipeline/plan_final.json <<'EOF'
 {"steps":[

@@ -91,7 +91,8 @@ toolchains write `.pipeline/HALT` with the reason.
 12. Opus review is mandatory for judgment-fallback runs and for repaired runs.
 13. A fresh Claude subagent receives only the original request and final diff,
     then returns the ACCEPT or DRIFT verdict.
-14. Accepted step commits collapse into one implementation commit.
+14. `pipeline/collapse.sh` re-runs the verify gate itself, then collapses the
+    accepted step commits into one implementation commit.
 
 ## Safety invariants
 
@@ -147,6 +148,27 @@ this list is the contract, not the history.
 - Give the tester the spec. `tests.sh` includes `spec_files` from `intent.json`,
   falling back to tracked markdown referenced from `intent.md`. Without it the
   tester sees only files the run has yet to create and invents the domain.
+
+**Stages nothing consumed**
+
+- Refuse in the consumer, not in the prose. Three stages wrote an artifact no
+  script ever read, so skipping them cost nothing and the failure was silent —
+  and they are the three that exist to catch what the orchestrating session
+  itself got wrong. `plan.sh` and `tests.sh` now require a `SOUND`
+  `assumptions.md`, `waves.sh` requires a matching `baseline.sha`, and
+  `collapse.sh` runs `validate_verify` itself.
+- Stamp the baseline by content, never by mtime. The gate commits the generated
+  test file immediately after re-running the baseline, a worktree copy or a
+  checkout rewrites mtimes without changing a byte, and timestamp granularity is
+  coarser than the gap between two writes. `baseline_stamp.sh` hashes the file
+  with `\r` stripped, because with `core.autocrlf` a checkout rewrites every line
+  ending and a stamp that moved on that would abort a legitimate resume.
+- Existing-suite and judgment adapters stamp the literal `existing-suite`. The
+  stamp's absence is the signal, so there is no mode in which it may be missing.
+- `collapse.sh` performs the reset. Left as prose, "never collapse unless
+  `validate_verify` exits 0" was a rule administered by the party doing the
+  collapsing. It refuses on DRIFT, a malformed verdict, any HALT, ESCALATE, or
+  REGRESSION marker, a dirty tree, and a HEAD still at the run base.
 
 **Credentials**
 
@@ -353,6 +375,7 @@ No API key required:
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
 | `test_assumptions.sh` | SOUND, UNSOUND, rejection archiving, revision budget, malformed output |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
+| `test_stage_gates.sh` | Baseline stamp by content, waves refusing a stale or missing baseline, plan and tests refusing an ungraded intent, every collapse refusal |
 | `test_campaign.sh` | Backlog validation, state surviving `run.sh`, unit chaining, retry reset and tag, failure archive and retry excerpt, the three stop conditions, attempt budget |
 | `test_backlog.sh` | Split grading: SOUND, UNSOUND, rejection archiving, revision budget, malformed output, what the prompt is and is not shown |
 | `smoke_adapters.sh` | Each adapter's real toolchain against a hand-written test; skips uninstalled toolchains |

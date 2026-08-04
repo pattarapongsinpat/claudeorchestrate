@@ -51,6 +51,7 @@ git clean -fdq -e .pipeline 2>/dev/null || true
 rm -f .pipeline/plan.md .pipeline/plan_final.json .pipeline/tests_spec.md \
       .pipeline/done.json .pipeline/ESCALATE .pipeline/HALT .pipeline/REGRESSION \
       .pipeline/repair_ctx.md .pipeline/step_status.json .pipeline/baseline.out \
+      .pipeline/baseline.sha \
       .pipeline/touched.log
 rm -rf .pipeline/status .pipeline/wt .pipeline/waves.lock
 

@@ -121,6 +121,7 @@ printf '[project]\nname="judgment"\n' > "$WORK/judgment/pyproject.toml"
   cd "$WORK/judgment"
   "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
   printf '%s\n' '{"allowed_files":["plugin.py"],"verification":{"mode":"judgment","reason":"behavior requires a running game host"}}' > .pipeline/intent.json
+  printf 'SOUND\n' > .pipeline/assumptions.md   # tests.sh refuses an ungraded intent
   "$PIPELINE_HOME/pipeline/tests.sh" >/dev/null
   jq -e '.verification_mode == "judgment" and .generated_tests == false and .generated_test_file == "" and .test_command == []' .pipeline/toolchain.json >/dev/null
   "$PIPELINE_HOME/pipeline/check_baseline.sh" | grep -Fq 'Opus will judge behavior directly'
@@ -142,6 +143,7 @@ for fallback_case in python javascript typescript go rust java csharp csharp-bui
   (
     cd "$WORK/$fallback_case"
     printf '%s\n' '{"allowed_files":["src/change.txt"],"verification":{"mode":"judgment","reason":"behavior requires an unavailable host runtime"}}' > .pipeline/intent.json
+    printf 'SOUND\n' > .pipeline/assumptions.md   # tests.sh refuses an ungraded intent
     "$PIPELINE_HOME/pipeline/tests.sh" >/dev/null
     jq -e '.verification_mode == "judgment" and .generated_tests == false and .generated_test_file == "" and .selector_mode == "none"' .pipeline/toolchain.json >/dev/null
     "$PIPELINE_HOME/pipeline/review_trigger.sh" | grep -Fq 'Opus judgment is mandatory'

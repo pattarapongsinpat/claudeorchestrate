@@ -130,6 +130,7 @@ rc=0
 printf '%s\n' 'api_key="sk-test_123456789012345678901234567890"' > unsafe-plan.txt
 printf '%s\n' '{"allowed_files":["unsafe-plan.txt"]}' > .pipeline/intent.json
 printf '%s\n' '# intent' > .pipeline/intent.md
+printf 'SOUND\n' > .pipeline/assumptions.md   # plan.sh refuses an ungraded intent
 rm -f .pipeline-model-allow .pipeline/HALT
 rc=0
 "$PIPELINE_HOME/pipeline/plan.sh" >/dev/null 2>&1 || rc=$?

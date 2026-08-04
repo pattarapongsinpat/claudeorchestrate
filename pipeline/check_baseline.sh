@@ -12,6 +12,12 @@ CONFIG=.pipeline/toolchain.json
 
 halt() { echo "$1" > .pipeline/HALT; echo "$1" >&2; exit 1; }
 
+# Record what the baseline was taken against, on every path that lets the run
+# proceed. waves.sh refuses without it: nothing used to consume this stage's
+# output, so skipping it was silent, and it is one of the stages that exists to
+# catch what the session running the workflow got wrong.
+stamp() { "$PIPELINE_HOME/pipeline/baseline_stamp.sh" "$CONFIG" > .pipeline/baseline.sha; }
+
 generated=$(jq -r '.generated_tests' "$CONFIG" | tr -d '\r')
 test_file=$(jq -r '.generated_test_file // ""' "$CONFIG" | tr -d '\r')
 verification_mode=$(jq -r '.verification_mode // "tests"' "$CONFIG" | tr -d '\r')
@@ -56,16 +62,19 @@ fi
 
 if "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/baseline.out 2>&1; then
   if [[ "$verification_mode" == judgment ]]; then
+    stamp
     echo "mechanical baseline green; Opus will judge behavior directly"
     exit 0
   fi
   [[ "$generated" == true ]] &&
     halt "baseline is green before implementation; the generated tests assert nothing"
+  stamp
   echo "baseline green (existing-suite adapter) — proceeding"
   exit 0
 fi
 
 if [[ "$verification_mode" == judgment ]]; then
+  stamp
   echo "mechanical baseline red — proceeding so the requested change may repair it"
   tail -5 .pipeline/baseline.out
   exit 0
@@ -99,5 +108,6 @@ if [[ "$generated" == true && -z "${PIPELINE_ALLOW_BROKEN_TESTS:-}" ]]; then
   fi
 fi
 
+stamp
 echo "baseline red — proceeding"
 tail -5 .pipeline/baseline.out

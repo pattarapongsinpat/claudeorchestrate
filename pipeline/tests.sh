@@ -3,6 +3,16 @@ set -euo pipefail
 PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PIPELINE_HOME/pipeline/path_safety.sh"
 [[ -f .pipeline/HALT ]] && { echo "halted before tests"; exit 1; }
+
+# Same gate as plan.sh. The tests are written from the intent's reading of the
+# request, so an ungraded reading produces tests that assert the wrong thing and
+# then everything downstream passes them.
+if [[ ! -f .pipeline/assumptions.md ]] ||
+   [[ "$(head -1 .pipeline/assumptions.md | tr -d '\r')" != SOUND ]]; then
+  echo "no SOUND assumption verdict; run check_assumptions before tests" >&2
+  exit 1
+fi
+
 CONFIG=.pipeline/toolchain.json
 [[ -f "$CONFIG" ]] || "$PIPELINE_HOME/pipeline/detect.sh"
 

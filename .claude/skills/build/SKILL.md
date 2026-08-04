@@ -149,9 +149,11 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
     the repair is the one asking for the verdict, so the isolated subagent is
     the only independent check left.
 
-12. On `ACCEPT`, collapse pipeline commits:
-
-   `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`
+12. Run pipeline script `collapse` with the intent goal as its one argument. It
+   re-runs `validate_verify` itself and refuses on DRIFT, on a malformed verdict,
+   on any HALT, ESCALATE, or REGRESSION marker, and on a dirty tree. Do not run
+   `git reset --soft` by hand: the session asking for the verdict is the one that
+   would be interpreting it.
 
    On `DRIFT` or an unrepaired `ESCALATE`, preserve the per-step commits for inspection.
 

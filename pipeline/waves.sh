@@ -22,6 +22,23 @@ if [[ -n "$(git status --porcelain)" ]]; then
   git status --short >&2; exit 1
 fi
 
+# check_baseline is what proves the generated tests fail for the right reason, and
+# nothing consumed its output, so skipping it cost nothing and the run walked into
+# steps graded by tests that could never pass. The stamp is the test file's
+# content, so a gate edit after the baseline invalidates it as surely as no
+# baseline at all.
+if [[ ! -f .pipeline/baseline.sha ]]; then
+  echo "ABORT: no baseline recorded. Run check_baseline before waves." >&2
+  exit 1
+fi
+want=$(tr -d '\r' < .pipeline/baseline.sha)
+have=$("$PIPELINE_HOME/pipeline/baseline_stamp.sh") || exit 1
+if [[ "$want" != "$have" ]]; then
+  echo "ABORT: the generated tests changed since the baseline was taken." >&2
+  echo "Re-run check_baseline so the run is graded against the tests it will use." >&2
+  exit 1
+fi
+
 # Single-runner lock. Two concurrent waves runs share .pipeline/wt/ and done.json:
 # they delete each other's worktrees mid-step, which surfaces as a missing code.log
 # rather than as a collision, and they mark each other's completed steps as escalated.

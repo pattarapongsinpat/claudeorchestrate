@@ -73,8 +73,9 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    so run it BEFORE any history collapse. Then run pipeline script
    `validate_verify`; collapse only when it exits 0. After a repair this is the
    only independent check left, since the repairing session is the one asking.
-10. On ACCEPT: collapse the per-step commits into one —
-   `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`.
+10. Run pipeline script `collapse` with the intent goal as its argument. It
+   re-runs validate_verify and refuses on DRIFT, a malformed verdict, any HALT /
+   ESCALATE / REGRESSION marker, or a dirty tree. Never `git reset --soft` by hand.
    On DRIFT or an unrepaired ESCALATE: leave the per-step commits in place.
 11. Append one row to `.pipeline/log.csv`, and report token usage from pipeline
    script `usage`.
