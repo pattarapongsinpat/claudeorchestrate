@@ -43,9 +43,46 @@ Set the key in `~/.claudeorchestrate/.env`:
 DEEPSEEK_API_KEY=your-key
 ```
 
-Restart Claude Code. Ask for a code change normally. Claude handles clearly
-localized, low-risk edits directly and routes larger or riskier work through the
-build pipeline. Use `/build <request>` to force the full pipeline.
+Restart Claude Code, then ask for a code change normally.
+
+## Routing
+
+Claude writes the change directly. That is the default, and it is what most
+requests get. A pipeline run costs a plan, a test-generation pass, a coder call
+per step, and several Opus stages, so it escalates only on a named risk:
+
+- more than roughly five files or 150 changed lines
+- a public interface, schema, data format, or persisted shape that other code
+  depends on
+- authentication, authorization, secrets, payments, cryptography, concurrency,
+  or a data migration
+- adding, removing, or upgrading a dependency
+- a decision the request does not carry, since the pipeline's intent stage is the
+  only stage that may ask
+- work Claude cannot verify, with no check to run and no output to read
+
+Uncertainty on its own does not escalate. Two commands force it:
+
+| Command | Use it for |
+|---|---|
+| `/build <request>` | One change, one plan. Runs the full pipeline. |
+| `/campaign <request>` | Work too large for one plan. Splits it once into build-sized units and runs the full pipeline on each. |
+
+### Campaigns
+
+`/campaign` asks its questions once, before anything runs, then decomposes the
+brief into an ordered backlog. DeepSeek grades that split against the brief
+before the first unit starts. Each unit is a complete `/build` on the previous
+unit's commit, run in a fresh subagent so a long campaign does not accumulate
+context.
+
+A failed unit is retried once, with the previous attempt's evidence archived under
+`.campaign/failed/<unit>-<attempt>/` rather than deleted. The campaign stops on an
+intent HALT, the same failure twice, or a spent budget, and earlier units keep
+their commits. A last isolated subagent renders ACCEPT or DRIFT on the whole
+campaign diff against the brief; unit commits are never collapsed.
+
+State lives in `.campaign/`, which survives the per-unit reset of `.pipeline/`.
 
 On Windows, the integration launches Git Bash explicitly through
 `pipeline/invoke.ps1`. It does not depend on the `bash` command in `PATH`, which

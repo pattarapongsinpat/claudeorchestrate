@@ -68,6 +68,9 @@ $MARKER
 ## Autonomous development workflow
 
 Use the globally installed build skill for software changes in Git projects.
+Write ordinary changes directly; that is the default. Save \`/build <request>\`
+for work that is large, risky, or undecided, and \`/campaign <request>\` for work
+too large for one plan. The escalation conditions are in the build skill.
 
 @$RUNTIME/PIPELINE.md
 EOF

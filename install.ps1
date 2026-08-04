@@ -87,7 +87,8 @@ if ($memoryText.Contains($legacyMarker) -or $memoryText.Contains($legacyPath)) {
 }
 $importPath = ($runtime -replace '\\', '/') + '/PIPELINE.md'
 if (-not $memoryText.Contains($marker) -and -not $memoryText.Contains("@$importPath")) {
-    $block = "`n`n$marker`n## Autonomous development workflow`n`nUse the globally installed build skill for software changes in Git projects.`n`n@$importPath`n"
+    $routing = "Write ordinary changes directly; that is the default. Save ``/build <request>`` for work that is large, risky, or undecided, and ``/campaign <request>`` for work too large for one plan. The escalation conditions are in the build skill."
+    $block = "`n`n$marker`n## Autonomous development workflow`n`nUse the globally installed build skill for software changes in Git projects.`n$routing`n`n@$importPath`n"
     Add-Content -LiteralPath $memory -Value $block -Encoding utf8
 }
 
