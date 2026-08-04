@@ -8,14 +8,36 @@ CLAUDE_HOME="$HOME/.claude"
 
 link_dir() {
   local source="$1" destination="$2"
-  if [[ -e "$destination" || -L "$destination" ]]; then
+
+  if [[ -L "$destination" ]]; then
     [[ "$(cd "$destination" 2>/dev/null && pwd -P)" == "$(cd "$source" && pwd -P)" ]] || {
-      echo "path already exists and points elsewhere: $destination" >&2
+      echo "symlink already exists and points elsewhere: $destination" >&2
       exit 1
     }
     return
   fi
+
+  if [[ -e "$destination" ]]; then
+    echo "path already exists and is not a symlink: $destination" >&2
+    echo "remove it and run the installer again." >&2
+    exit 1
+  fi
+
   ln -s "$source" "$destination"
+
+  # Git Bash without symlink support silently copies the directory instead of
+  # linking it, and reports success. The copy goes stale the moment the
+  # repository is updated, and the next run finds a real directory where a link
+  # belongs — which is how this surfaced: as "path already exists and points
+  # elsewhere" on a second install, long after the wrong thing had been done.
+  if [[ ! -L "$destination" ]]; then
+    rm -rf "$destination"
+    echo "cannot create a symlink at $destination" >&2
+    echo "ln -s copied the directory instead of linking it." >&2
+    echo "On Windows use install.ps1. To use this script anyway, enable Windows" >&2
+    echo "Developer Mode and set MSYS=winsymlinks:nativestrict." >&2
+    exit 1
+  fi
 }
 
 remove_legacy_link() {
