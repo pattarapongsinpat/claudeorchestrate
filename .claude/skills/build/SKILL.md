@@ -57,7 +57,7 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 2. Run `git status --porcelain`. Stop and report the paths if the worktree is dirty. Do not include pre-existing changes in pipeline commits.
 3. Confirm `DEEPSEEK_API_KEY` is available from the environment or the shared runtime `.env`.
 4. Halt immediately whenever `.pipeline/HALT` appears. `.pipeline/ESCALATE` is
-   handled by the repair stage in step 7, not by halting on sight.
+   handled by the repair stage in step 8, not by halting on sight.
 
 ## Workflow
 
@@ -65,9 +65,27 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
 
    Run pipeline script `run` using the platform invocation above.
 
-2. Read `$HOME/.claudeorchestrate/.claude/commands/intent.md`. Perform its instructions using the original user request.
+2. Read `$HOME/.claudeorchestrate/.claude/commands/intent.md`. Perform its
+   instructions using the original user request. This stage asks the user one to
+   three multiple-choice questions, in a single `AskUserQuestion` call, and
+   records the answers verbatim in `request.txt`. The first one confirms what to
+   build and is mandatory on every run, however clear the request looks: the goal
+   is what every later stage inherits, so it is the one error none of them can
+   catch. No later stage may ask:
+   once the plan and the tests exist, a question arrives after the run has
+   already committed to a reading.
 
-3. Run these independently without sharing their outputs:
+3. Run pipeline script `check_assumptions`. It sends DeepSeek the whole of
+   `request.txt` and the intent's Assumptions section, nothing else, and its exit
+   code is authoritative: 0 continues, 2 means revise the named assumption in
+   `intent.md` and `intent.json` and run the script again, 3 means the revision
+   budget is spent and the script already wrote `.pipeline/HALT`, 1 means the
+   verdict was malformed. Revising means changing or dropping the assumption. It
+   does not mean arguing with the verdict or editing the Goal to fit it. No later
+   stage reads the original request against the intent, so a misreading caught
+   anywhere else is caught after it was built.
+
+4. Run these independently without sharing their outputs:
 
    - Pipeline script `plan`
    - Pipeline script `tests`
@@ -76,15 +94,15 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
    require an unavailable host, hardware, or proprietary runtime. The test
    stage then retains available mechanical checks and skips test generation.
 
-4. Run pipeline script `check_baseline` before implementation. It HALTs when the existing suite fails to load or when generated tests are already green. Stop on HALT rather than editing code to satisfy it.
+5. Run pipeline script `check_baseline` before implementation. It HALTs when the existing suite fails to load or when generated tests are already green. Stop on HALT rather than editing code to satisfy it.
 
-5. Read `$HOME/.claudeorchestrate/.claude/commands/gate.md` and perform its instructions. Then re-run pipeline script `check_baseline`, because the gate may edit the generated test file, and run `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
+6. Read `$HOME/.claudeorchestrate/.claude/commands/gate.md` and perform its instructions. Then re-run pipeline script `check_baseline`, because the gate may edit the generated test file, and run `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
 
-6. Run the implementation waves:
+7. Run the implementation waves:
 
    Run pipeline script `waves`.
 
-7. If `waves` wrote `.pipeline/ESCALATE`, repair the step yourself rather than
+8. If `waves` wrote `.pipeline/ESCALATE`, repair the step yourself rather than
    stopping. You already hold the request, the intent, and the plan, so this
    costs one Opus turn instead of a fresh context.
 
@@ -111,28 +129,28 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
       not edit the test. Run pipeline script `restart_run` with a one-line reason.
       It resets to the run base, tags the abandoned commits, archives the failing
       tests, and clears the plan and the tests while keeping the request and the
-      intent. Then go back to step 3 and continue the workflow from there: the
+      intent. Then go back to step 4 and continue the workflow from there: the
       tester runs again from the request and the spec, independently of what
       failed. One restart per request; on refusal, stop and report.
 
-8. Run pipeline script `final_check`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
+9. Run pipeline script `final_check`. Steps only ran their own mapped tests, so this is the first full-suite execution of the run. On failure it writes `.pipeline/REGRESSION`; stop with the commits in place rather than patching around it.
 
-9. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.
+10. Run pipeline script `review_trigger`. It exits 0 when review is warranted and prints the reasons. On exit 0, run pipeline script `review_ctx`, then read and perform `$HOME/.claudeorchestrate/.claude/commands/review.md`.
 
    Judgment mode always triggers this Opus review.
 
-10. Always read and perform `$HOME/.claudeorchestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
+11. Always read and perform `$HOME/.claudeorchestrate/.claude/commands/verify.md` before collapsing history. The verdict must come from the fresh isolated subagent required there. Run pipeline script `validate_verify` afterward and never collapse unless it exits 0.
 
     A repaired step makes this more important, not less: the session that wrote
     the repair is the one asking for the verdict, so the isolated subagent is
     the only independent check left.
 
-11. On `ACCEPT`, collapse pipeline commits:
+12. On `ACCEPT`, collapse pipeline commits:
 
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`
 
    On `DRIFT` or an unrepaired `ESCALATE`, preserve the per-step commits for inspection.
 
-12. Append the run result to `.pipeline/log.csv` and report token usage from pipeline script `usage`.
+13. Append the run result to `.pipeline/log.csv` and report token usage from pipeline script `usage`.
 
 Report the final verdict, changed files, tests or judgment fallback, and commit hash. Keep the response concise.

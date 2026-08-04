@@ -4,7 +4,9 @@ Read `.pipeline/request.txt` and the full run diff from
 Launch a fresh general-purpose subagent with no inherited conversation context.
 Give it only:
 
-1. The original request text, copied verbatim.
+1. The complete contents of `request.txt`, copied verbatim — including any
+   clarification or referenced-context block recorded there, which are the
+   user's words and part of the request.
 2. The complete run diff.
 3. This question: "Would the person who wrote the request accept this diff?"
 

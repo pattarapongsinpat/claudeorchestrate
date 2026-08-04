@@ -51,6 +51,7 @@ toolchains write `.pipeline/HALT` with the reason.
 | Stage | Model |
 |---|---|
 | Intent | Claude Opus session |
+| Assumption check | `deepseek-v4-flash` (`PIPELINE_ASSUMPTIONS_MODEL`), request only |
 | Plan | `deepseek-v4-pro` |
 | Native tests | `deepseek-v4-pro`, unless Opus selects the judgment fallback |
 | Plan gate | Claude Opus session |
@@ -62,28 +63,31 @@ toolchains write `.pipeline/HALT` with the reason.
 ## Workflow
 
 1. `pipeline/run.sh` records the base commit and detects the native toolchain.
-2. Claude writes the original request and intent artifacts.
-3. DeepSeek creates the plan and native tests independently. If Opus recorded
+2. Claude writes the original request and intent artifacts, asking the user up
+   to three questions in one round when the request does not stand on its own.
+3. `pipeline/check_assumptions.sh` has DeepSeek grade the intent's assumptions
+   against the request alone, and enforces the verdict and revision budget.
+4. DeepSeek creates the plan and native tests independently. If Opus recorded
    that behavioral tests are impossible in the available environment, the test
    stage records the reason and keeps only the detected mechanical check.
-4. `pipeline/check_baseline.sh` establishes the pre-implementation baseline and
+5. `pipeline/check_baseline.sh` establishes the pre-implementation baseline and
    classifies it. Red because an assertion does not hold yet is the point. Red
    because the generated tests cannot execute is a defect in the tests, and it
    HALTs instead of spending coder attempts on an unwinnable step.
-5. Claude gates the plan, maps exact native test names to steps, and corrects test signature drift.
-6. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
-7. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
-8. The native adapter runs mapped tests, or the fallback mechanical command,
+6. Claude gates the plan, maps exact native test names to steps, and corrects test signature drift.
+7. `pipeline/waves.sh` runs dependency-safe, file-disjoint steps in parallel worktrees.
+8. Each step may write only its allowlisted files and may not edit tests or dependency manifests.
+9. The native adapter runs mapped tests, or the fallback mechanical command,
    after every implementation attempt.
-9. `pipeline/final_check.sh` runs the whole suite, or the fallback mechanical
-   command. In test mode, regressions in untargeted tests surface only here.
-10. On a step's ESCALATE, the Opus session repairs that one step, then `waves.sh`
+10. `pipeline/final_check.sh` runs the whole suite, or the fallback mechanical
+    command. In test mode, regressions in untargeted tests surface only here.
+11. On a step's ESCALATE, the Opus session repairs that one step, then `waves.sh`
     resumes the steps the stall blocked. When the mapped test is what is wrong,
-    `restart_run.sh` regenerates instead and the workflow resumes from step 3.
-11. Opus review is mandatory for judgment-fallback runs and for repaired runs.
-12. A fresh Claude subagent receives only the original request and final diff,
+    `restart_run.sh` regenerates instead and the workflow resumes from step 4.
+12. Opus review is mandatory for judgment-fallback runs and for repaired runs.
+13. A fresh Claude subagent receives only the original request and final diff,
     then returns the ACCEPT or DRIFT verdict.
-13. Accepted step commits collapse into one implementation commit.
+14. Accepted step commits collapse into one implementation commit.
 
 ## Safety invariants
 
@@ -93,8 +97,43 @@ this list is the contract, not the history.
 
 **Request and scope**
 
-- Preserve the request verbatim in `.pipeline/request.txt`. Stop on low intent
-  confidence.
+- Preserve the request verbatim in `.pipeline/request.txt`. Stop when intent
+  writes `.pipeline/HALT` because the request needs a decision it does not carry.
+- Make `request.txt` self-contained, out of the user's words. "do it" is a whole
+  request, and the two stages that read this file and nothing else — the
+  assumption check and the final verifier — would be grading the word "it".
+  Intent asks one to three questions in one round, the only stage that may ask,
+  and records the answers verbatim. They are multiple choice, in one
+  `AskUserQuestion` call, each option naming what would be built if picked.
+- Confirm the goal on every run. The first question is mandatory and settles what
+  to build. Every later stage inherits the goal — assumptions are graded against
+  it, tests are written from it, ACCEPT or DRIFT is rendered against it — so the
+  stages agree with each other and a wrong goal is the one error none of them can
+  catch. The two optional questions are for answers that change what gets built;
+  a question with no plausible second option is one to assume instead. Unattended, it quotes the conversation turns
+  the request points at instead. Never a paraphrase either way: a summary is the
+  intent's reading, which is what those two stages exist to test.
+- Do not let the intent stage grade its own confidence. The adjective was chosen
+  by the session it was meant to check, nothing downstream contradicted it, and
+  the only level with a cost was the one that stopped the run. `check_assumptions.sh`
+  grades Assumptions against `request.txt` instead, and `validate_assumptions.sh`
+  holds the verdict: `UNSOUND` is archived as `.pipeline/assumptions-N.md`, so the
+  count is the budget (`PIPELINE_MAX_ASSUMPTION_REVISIONS`, default 1) and the
+  second rejection HALTs rather than letting the session revise until the verdict
+  agrees with it.
+- Grade the assumptions with DeepSeek, not a Claude subagent. A fresh subagent is
+  new context but the same reader, and the failure being caught is a misreading of
+  English, so shared priors are exactly what must not be shared. The call is a
+  request and a short list, so `flash` by default; `PIPELINE_ASSUMPTIONS_MODEL`
+  takes `flash` or `pro`, and anything else is a configuration error.
+- Withhold everything but the request from that call. The goal, non-goals,
+  allowlist, and plan are all restatements of the reading under test, so
+  supplying them grades the intent against itself. A chatty answer is a malformed
+  verdict, not a rejection: only `UNSOUND: ` spends the budget.
+- Reject overreach, not silence. An unstated parameter filled with an ordinary
+  value is SOUND; a measured run had flash reject "retried three times" because
+  the request named no count, which would spend the budget on nearly every
+  request. The grading prompt says so, with worked examples on both sides.
 - `.pipeline/intent.json` `allowed_files` is authoritative. Steps may not modify
   tests or dependency manifests.
 - Keep tests independent of the generated plan.
@@ -201,6 +240,8 @@ this list is the contract, not the history.
 | `.pipeline/toolchain.json` | Language, framework, commands, selector mode, test path |
 | `.pipeline/intent.md` | Human-readable intent |
 | `.pipeline/intent.json` | Authoritative allowlist and structured intent |
+| `.pipeline/assumptions.md` | SOUND or UNSOUND verdict on the intent's assumptions |
+| `.pipeline/assumptions-N.md` | A rejected assumption verdict, one per spent revision |
 | `.pipeline/plan.md` | DeepSeek plan |
 | `.pipeline/tests_spec.md` | Generated tests, existing-suite context, or judgment-fallback reason |
 | `.pipeline/plan_final.json` | Claude-gated steps, dependencies, exact test names |
@@ -230,6 +271,7 @@ No API key required:
 | `test_escalation.sh` | Escalation on a failed assertion, review triggering, scope rejection, resume after escalation |
 | `test_repair.sh` | Repair brief, `repair_done.sh` refusals, accepted repair, resume without re-running |
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
+| `test_assumptions.sh` | SOUND, UNSOUND, rejection archiving, revision budget, malformed output |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
 | `smoke_adapters.sh` | Each adapter's real toolchain against a hand-written test; skips uninstalled toolchains |
 

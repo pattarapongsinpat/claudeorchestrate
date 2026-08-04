@@ -9,24 +9,34 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    Treat `$ARGUMENTS` as the original request for all later checks.
 
 1. /intent — write request.txt, intent.md, intent.json.
-   Confidence low → stop, surface questions, do not continue.
+   It asks one to three multiple-choice questions in one `AskUserQuestion` call
+   and records the answers verbatim in request.txt. The first, confirming what
+   to build, is mandatory. Only stage that asks.
+   Stop on `.pipeline/HALT`: the request needs a decision no answer supplied.
    Intent may choose judgment mode only when behavioral tests require an
    unavailable host, hardware, or proprietary runtime. Record the exact reason.
-2. Run in ONE turn so outputs can't contaminate each other: pipeline scripts
+2. Run pipeline script `check_assumptions`. DeepSeek grades Assumptions against
+   request.txt alone and the exit code is authoritative: 0 continue, 2 revise
+   the named assumption in intent.md and intent.json then run it again,
+   3 budget spent and HALT already written, 1 malformed verdict. Do not argue
+   with the verdict and do not edit the Goal to fit it. Nothing downstream
+   re-reads the request against the intent, so this is the only stage that
+   catches a misreading before it is built.
+3. Run in ONE turn so outputs can't contaminate each other: pipeline scripts
    `plan` and `tests`. Then run pipeline script `check_baseline`. It writes
    `.pipeline/HALT` and fails when the suite does not load, or when generated tests
    are green before implementation. Stop on HALT — do not "fix" the baseline by
    editing code.
-3. /gate — rewrite to plan_final.json (per-step `tests` selector and `deps`) and
+4. /gate — rewrite to plan_final.json (per-step `tests` selector and `deps`) and
    correct any test-signature drift in the configured generated test file. Then
    re-run pipeline script `check_baseline` (the gate edits tests) and
    `git add -A; git diff --cached --quiet || git commit -qm "generated tests"`.
-4. Run pipeline script `waves`. It schedules the plan into dependency
+5. Run pipeline script `waves`. It schedules the plan into dependency
    waves, runs dep-free file-disjoint steps in parallel git worktrees, commits
    and cherry-picks each success back, and appends to `.pipeline/touched.log`.
    On any step's ESCALATE it stops with the partial commits in place and writes
    `.pipeline/ESCALATE`.
-5. On ESCALATE, repair the step in this session rather than stopping — it already
+6. On ESCALATE, repair the step in this session rather than stopping — it already
    holds the request, the intent, and the plan.
    a. Run pipeline script `repair_ctx` for the step ids and
       `.pipeline/repair_ctx.md`.
@@ -41,28 +51,28 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    e. If the mapped test is the thing that is wrong — no implementation within
       `files_allowed` can satisfy it — do not repair and do not edit it. Run
       pipeline script `restart_run` with a one-line reason, then resume from
-      step 2 (plan and tests). It resets to the run base, tags the abandoned
+      step 3 (plan and tests). It resets to the run base, tags the abandoned
       commits, archives the failing tests, and keeps the request and intent.
       One restart per request.
    `repair_done` enforces two repairs per run. When it refuses on the budget,
    stop and report — that many failures points at the plan or the generated
    tests, not at the coder.
-6. Run pipeline script `final_check`. Steps only ran
+7. Run pipeline script `final_check`. Steps only ran
    their own mapped tests, so this is the first time the whole suite runs. On
    failure it writes `.pipeline/REGRESSION`; stop there with the commits in place.
 
-7. Run pipeline script `review_trigger`. It exits 0 when
+8. Run pipeline script `review_trigger`. It exits 0 when
    review is warranted (a step needed a retry, a step was not gated by its tests, a
    NOOP, or a repeat-touched file) and prints why. On exit 0, run pipeline script
    `review_ctx`, then /review.
    review_ctx.sh must run first — /review reads its output.
    Judgment mode always requires this Opus review.
-8. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
+9. /verify — always. It reads `git diff $(cat .pipeline/run_base)..HEAD`,
    so run it BEFORE any history collapse. Then run pipeline script
    `validate_verify`; collapse only when it exits 0. After a repair this is the
    only independent check left, since the repairing session is the one asking.
-9. On ACCEPT: collapse the per-step commits into one —
+10. On ACCEPT: collapse the per-step commits into one —
    `git reset --soft "$(cat .pipeline/run_base)" && git commit -qm "<intent goal>"`.
    On DRIFT or an unrepaired ESCALATE: leave the per-step commits in place.
-10. Append one row to `.pipeline/log.csv`, and report token usage from pipeline
+11. Append one row to `.pipeline/log.csv`, and report token usage from pipeline
    script `usage`.
