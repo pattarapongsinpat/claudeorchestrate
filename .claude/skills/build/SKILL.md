@@ -1,6 +1,6 @@
 ---
 name: build
-description: Route software changes either to a conservative direct Claude fast path or to the shared Opus and DeepSeek implementation pipeline. Invoke automatically whenever the user asks Claude to implement, modify, fix, refactor, add tests, or otherwise change code or project files in a Git repository. Do not invoke for explanation-only, inspection-only, planning-only, or non-Git requests.
+description: Route a software change either to Claude writing it directly, which is the default, or to the shared Opus and DeepSeek pipeline when the change is large, dangerous, or undecided. Invoke automatically whenever the user asks Claude to implement, modify, fix, refactor, add tests, or otherwise change code or project files in a Git repository. Do not invoke for explanation-only, inspection-only, planning-only, or non-Git requests.
 ---
 
 # Autonomous Build
@@ -11,38 +11,52 @@ The shared runtime is `$HOME/.claudeorchestrate`.
 
 ## Route selection
 
-An explicit `/build` command always uses the full pipeline. A normal change
-request may use the direct fast path only when every condition below is true
-after a read-only inspection:
+Write it directly. That is the default.
 
-1. The requested outcome is clear and needs no design choice.
-2. The change is localized to one implementation file and is expected to stay
-   under 20 changed lines. Documentation-only changes may touch two files.
-3. It does not add or change dependencies, manifests, generated files, public
-   interfaces, data formats, schemas, persistence, or migrations.
-4. It does not affect authentication, authorization, secrets, payments,
-   security boundaries, concurrency, networking, deployment, or build logic.
-5. It is not a broad refactor and does not change a contract shared across files.
-6. Existing focused verification can cover it, or it changes only documentation,
-   comments, formatting, or user-facing copy.
+The pipeline spends a plan, a test-generation pass, a coder call per step, and
+several Opus stages on one request. It has to earn that on the change actually in
+front of you, and on most changes it does not. An explicit `/build` or
+`/campaign` always forces the full pipeline; nothing else does automatically.
 
-When uncertain, use the full pipeline. Never use the direct path merely because
-the pipeline is unavailable or the worktree is dirty.
+Escalate to the pipeline only when one of these is true. Each names a risk, not a
+feeling:
 
-### Direct fast path
+1. **Size.** More than roughly five files, or more than roughly 150 changed lines.
+2. **Blast radius.** It changes a public interface, schema, data format, wire
+   protocol, or persisted shape that code you are not editing depends on.
+3. **Danger.** Authentication, authorization, secrets, payments, cryptography,
+   concurrency, or a data migration.
+4. **Dependencies.** It adds, removes, or upgrades one.
+5. **Undecided.** The right behavior needs a choice from the user that the request
+   does not carry. The pipeline's intent stage is the only stage that may ask.
+6. **Unverifiable by you.** There is no check you can run and no output you can
+   read to tell whether it worked.
+7. **The user said so.** They called it a big change, asked for a plan, or asked
+   for tests to be generated.
+
+Uncertainty on its own is no longer a reason to escalate. Read the code until the
+uncertainty resolves; that is cheaper than a pipeline run. Never escalate merely
+because the change feels large before you have looked.
+
+Never use the pipeline as a way to avoid verifying your own work, and never use
+the direct path merely because the worktree is dirty or the pipeline is broken.
+
+### Direct path
 
 1. Do not call DeepSeek, create a subagent, or write `.pipeline` artifacts.
-2. Inspect `git status`, the target file, and its nearby tests. Preserve unrelated
-   user changes. Stop if the target overlaps pre-existing changes that cannot be
-   separated safely.
-3. Make the smallest direct edit in the current session.
-4. Run the narrowest relevant check, then the broader relevant suite when cheap.
-5. Review the final diff for scope and regressions. Do not commit unless the user
-   requested a commit.
+2. Read what you are changing and the tests around it. Check `git status` and
+   preserve unrelated user changes; stop if your target overlaps pre-existing
+   changes that cannot be separated safely.
+3. Make the edit.
+4. Run the narrowest real check, then the broader suite when it is cheap. A change
+   you cannot check is condition 6, not a reason to skip verifying.
+5. Report what changed and what you ran. Do not commit unless asked.
 
-Examples that may qualify include a typo, a localized copy change, an obvious
-constant correction, or a one-line guard already covered by tests. New behavior,
-new tests, multi-file fixes, and uncertain bug fixes use the full pipeline.
+Typos, copy, constants, guards, a new function with an obvious contract, a
+localized bug fix, a rename inside one module, a new test, a small refactor with
+tests already covering it: all direct. A four-file feature behind an existing
+interface is still direct. Reach for the pipeline when a condition above fires,
+not when the work merely looks like real work.
 
 ## Shell invocation
 

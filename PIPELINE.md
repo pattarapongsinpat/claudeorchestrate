@@ -10,13 +10,14 @@ The personal `build` skill applies this workflow to implementation, bug fix,
 refactor, and test-change requests in Git repositories. Explanation, inspection,
 and planning-only requests do not trigger it.
 
-For normal requests, the skill first applies a conservative fast-path gate.
-Clear changes limited to one implementation file and under 20 changed lines may
-be handled directly by Claude when they avoid dependencies, public contracts,
-state, security, concurrency, networking, build logic, and other high-risk areas.
-The direct path uses no DeepSeek or subagent and still requires focused
-verification. Any uncertainty routes to the full pipeline. Explicit `/build`
-always forces the full pipeline.
+Claude writing the change directly is the default. A pipeline run costs a plan, a
+test-generation pass, a coder call per step, and several Opus stages, so the skill
+escalates only on a named risk: more than roughly five files or 150 lines, a
+public contract or schema other code depends on, security or concurrency or a
+data migration, a dependency change, a decision the request does not carry, work
+Claude cannot verify, or the user asking for it. Uncertainty alone is not one —
+reading the code is cheaper than a run. Explicit `/build` and `/campaign` always
+force the full pipeline.
 
 The pipeline requires a clean worktree. It stops instead of committing or
 overwriting pre-existing changes.
@@ -233,7 +234,8 @@ this list is the contract, not the history.
   over 800 lines fall back to the mapped tests with 25 lines of context. The file
   stays read-only.
 - `repair_ctx.sh` also writes `.claude/routing-ack` and adds it to `info/exclude`.
-  The routing gate resolves that path against the project, so a hand-written ack
+  The routing gate is off unless `ROUTING_GATE=strict`, but the ack still has to be
+  written where the gate resolves it — against the project — so a hand-written one
   dirties the tree and reads as out-of-allowlist. `repair_done.sh` skips that one
   exact path.
 - `PIPELINE_MAX_REPAIRS`, default 2, enforced in `repair_done.sh` by counting
