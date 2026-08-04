@@ -268,3 +268,44 @@ if [[ -f "$OVERRIDE" ]]; then
 fi
 
 echo "detected: $(jq -r '.language + " / " + .framework' "$OUT")"
+
+# Detection above is first-match, so a polyglot repository silently gets whichever
+# manifest the chain reaches first. The wrong pick does not break the run — it
+# surfaces later as generated tests that will not execute — but it surfaces as a
+# test problem, not a detection one. Name the other candidates here so the cause
+# is visible before anyone debugs the tests. Only manifests that claim the
+# language count: Makefile is a task runner in most repositories, and
+# requirements.txt is as often docs or lint tooling inside a repository written
+# in something else. A note that fires when nothing is wrong is a note nobody
+# reads, including on the run where it was right.
+if [[ ! -f "$OVERRIDE" ]]; then
+  candidates=()
+  add_candidate() { [[ -e "$1" ]] && candidates+=("$2 ($1)"); return 0; }
+  add_candidate package.json javascript
+  add_candidate pyproject.toml python
+  add_candidate setup.py python
+  add_candidate go.mod go
+  add_candidate Cargo.toml rust
+  add_candidate pom.xml java
+  add_candidate build.gradle java
+  add_candidate build.gradle.kts java
+  add_candidate settings.gradle java
+  add_candidate settings.gradle.kts java
+  add_candidate CMakeLists.txt c
+  add_candidate meson.build c
+  while IFS= read -r project; do
+    candidates+=("csharp (${project//\\//})")
+    break
+  done < <(rg --files -g '*.csproj' -g '*.sln' -g '*.slnx' 2>/dev/null || true)
+
+  families=0
+  ((${#candidates[@]})) && families=$(printf '%s\n' "${candidates[@]}" | cut -d' ' -f1 | sort -u | grep -c . || true)
+  if ((families > 1)); then
+    {
+      echo "note: more than one language manifest is present:"
+      printf '  %s\n' "${candidates[@]}"
+      echo "detection is first-match and chose $(jq -r '.language' "$OUT")."
+      echo "if that is the wrong half of this repository, commit a .pipeline-toolchain.json override."
+    } >&2
+  fi
+fi

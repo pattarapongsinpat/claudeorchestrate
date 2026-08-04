@@ -226,6 +226,52 @@ export TEST_LOG="$WORK/runner/calls.log"
   grep -Fxq -- '-R alpha|beta' "$TEST_LOG"
 )
 
+# Detection is first-match, so a polyglot repository gets whichever manifest the
+# chain reaches first. The note names the losers on stderr; it must not fire when
+# nothing is ambiguous, or nobody reads it on the run where it was right.
+note_for() {
+  local dir="$1"
+  (cd "$WORK/$dir" && "$PIPELINE_HOME/pipeline/detect.sh" 2>&1 >/dev/null || true)
+}
+
+mkdir -p "$WORK/poly"
+printf '{"devDependencies":{"vitest":"latest"}}\n' > "$WORK/poly/package.json"
+printf '[project]\nname="demo"\n' > "$WORK/poly/pyproject.toml"
+printf 'module example.test/demo\n\ngo 1.22\n' > "$WORK/poly/go.mod"
+out=$(note_for poly)
+grep -Fq 'more than one language manifest' <<<"$out"
+grep -Fq 'javascript (package.json)' <<<"$out"
+grep -Fq 'python (pyproject.toml)' <<<"$out"
+grep -Fq 'go (go.mod)' <<<"$out"
+grep -Fq 'chose javascript.' <<<"$out"
+
+# One language stated three ways is not a conflict.
+mkdir -p "$WORK/poly_same"
+printf '[project]\nname="demo"\n' > "$WORK/poly_same/pyproject.toml"
+printf 'from setuptools import setup\n' > "$WORK/poly_same/setup.py"
+! grep -Fq 'more than one language manifest' <<<"$(note_for poly_same)"
+
+# requirements.txt and Makefile are tooling in repositories written in something
+# else, so neither one claims a language on its own.
+mkdir -p "$WORK/poly_tooling"
+printf '{"devDependencies":{"vitest":"latest"}}\n' > "$WORK/poly_tooling/package.json"
+printf 'mkdocs\n' > "$WORK/poly_tooling/requirements.txt"
+printf 'all:\n\techo hi\n' > "$WORK/poly_tooling/Makefile"
+! grep -Fq 'more than one language manifest' <<<"$(note_for poly_tooling)"
+
+# An override says the choice was deliberate.
+mkdir -p "$WORK/poly_override"
+printf '{"devDependencies":{"vitest":"latest"}}\n' > "$WORK/poly_override/package.json"
+printf 'module example.test/demo\n\ngo 1.22\n' > "$WORK/poly_override/go.mod"
+jq -n '{framework:"go-test",test_command:["go","test","./..."],selector_mode:"regex",generated_tests:false}' \
+  > "$WORK/poly_override/.pipeline-toolchain.json"
+! grep -Fq 'more than one language manifest' <<<"$(note_for poly_override)"
+
+# A single manifest is the common case and must stay silent.
+! grep -Fq 'more than one language manifest' <<<"$(note_for go)"
+
+echo "polyglot note tests passed"
+
 echo "adapter detection tests passed"
 
 # The baseline loader must inspect the pre-existing suite without the generated

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Token usage for the run, summed from the raw responses. Answers "what did that
-# cost" without a separate ledger to keep in sync — the raw files are already
+# cost" without a separate log to keep in sync — the raw files are already
 # copied back out of the parallel worktrees.
 set -euo pipefail
 shopt -s nullglob
