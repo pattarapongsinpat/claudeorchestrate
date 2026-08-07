@@ -9,6 +9,12 @@ PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f .pipeline/request.txt ]] || { echo "missing .pipeline/request.txt" >&2; exit 1; }
 [[ -f .pipeline/intent.md ]] || { echo "missing .pipeline/intent.md" >&2; exit 1; }
 
+# The run's own budget, counted here rather than in the skill's prose: this is the
+# first script that runs once request.txt exists, and plan.sh and tests.sh already
+# refuse without the verdict it writes, so a skipped guard is not reachable. It
+# refuses before the grading call, so a spent budget costs nothing.
+"$PIPELINE_HOME/pipeline/attempt_guard.sh" build .pipeline/request.txt
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

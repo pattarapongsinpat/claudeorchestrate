@@ -45,8 +45,13 @@ Each `request` must stand on its own the way `request.txt` must. It is read
 beside the brief, not instead of it, but a unit whose text is "the rest of it"
 gives the tester nothing to write tests from.
 
-Then run pipeline script `validate_backlog`. It checks the shape and builds
-`.campaign/state.json`. Fix what it rejects; do not hand-write the state file.
+Then run pipeline script `validate_backlog`. It first counts this campaign
+against the per-brief cap of two attempts and exits 3 with `.campaign/HALT` when
+they are spent, before the shape check and before `check_backlog` spends a call.
+A third campaign on the same brief is refused: read `.campaign/failed/` and the
+stopped campaign's reason, then narrow the brief. A campaign that ran every unit
+clears the count. It then checks the shape and builds `.campaign/state.json`.
+Fix what it rejects; do not hand-write the state file.
 
 Then run pipeline script `check_backlog`. It sends DeepSeek the brief and the
 units, nothing else, and its exit code is authoritative: 0 continues, 2 means

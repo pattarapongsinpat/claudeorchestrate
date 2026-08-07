@@ -17,7 +17,13 @@ Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.sh"`.
    Stop on `.pipeline/HALT`: the request needs a decision no answer supplied.
    Intent may choose judgment mode only when behavioral tests require an
    unavailable host, hardware, or proprietary runtime. Record the exact reason.
-2. Run pipeline script `check_assumptions`. DeepSeek grades Assumptions against
+2. Run pipeline script `check_assumptions`. It first counts this run against the
+   per-request cap of three build attempts and exits 3 with a HALT when they are
+   spent; a fourth run on the same request text is refused, and the remedy is to
+   read the archived attempts and change the request, not to re-run it. An
+   accepted `collapse` returns the budget, and a campaign unit is exempt because
+   the campaign bounds it.
+   Then DeepSeek grades Assumptions against
    request.txt alone and the exit code is authoritative: 0 continue, 2 revise
    the named assumption in intent.md and intent.json then run it again,
    3 budget spent and HALT already written, 1 malformed verdict. Do not argue

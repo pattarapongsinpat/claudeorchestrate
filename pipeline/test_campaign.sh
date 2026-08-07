@@ -201,5 +201,24 @@ P campaign_init >/dev/null
 [[ ! -e .campaign/state.json ]]
 [[ -n "$(ls -d .campaign/finished-* 2>/dev/null)" ]]
 
+# The campaign's own budget, counted by validate_backlog against the brief. Same
+# repository, same brief text: the second open is the second attempt, and the
+# third is refused before check_backlog spends a call on it.
+new_repo
+for _ in 1 2; do
+  P campaign_init >/dev/null
+  printf '## Request\nrepeat the same campaign\n' > .campaign/brief.txt
+  backlog
+  P validate_backlog >/dev/null
+  tmp=$(mktemp); jq '.status="stopped"' .campaign/state.json > "$tmp"; mv "$tmp" .campaign/state.json
+done
+P campaign_init >/dev/null
+printf '## Request\nrepeat the same campaign\n' > .campaign/brief.txt
+backlog
+rc=0; P validate_backlog >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+[[ -f .campaign/HALT ]]
+[[ ! -e .campaign/state.json ]]
+
 cd /
 echo "campaign tests passed"

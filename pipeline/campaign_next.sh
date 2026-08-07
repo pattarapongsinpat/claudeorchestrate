@@ -4,6 +4,7 @@
 # Exit codes are authoritative: 0 a unit is ready, 3 the campaign is complete,
 # 1 stopped or broken.
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f .campaign/state.json ]] || { echo "no campaign — run campaign_init first" >&2; exit 1; }
 [[ -f .campaign/backlog.json ]] || { echo "missing .campaign/backlog.json" >&2; exit 1; }
 
@@ -25,6 +26,10 @@ if [[ -z "$ID" ]]; then
   tmp=$(mktemp)
   jq '.status = "complete" | .current = null' .campaign/state.json > "$tmp" && mv "$tmp" .campaign/state.json
   rm -f .campaign/unit_request.txt
+  # Every unit built, so this brief cost nothing it should be charged for. The
+  # cap counts campaigns that stopped, not campaigns that finished.
+  [[ -s .campaign/brief.txt ]] &&
+    "$PIPELINE_HOME/pipeline/attempt_guard.sh" --clear campaign .campaign/brief.txt >/dev/null || true
   echo "all units done"
   exit 3
 fi

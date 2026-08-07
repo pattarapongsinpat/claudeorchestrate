@@ -48,3 +48,9 @@ COUNT=$(git rev-list --count "$BASE"..HEAD)
 git reset -q --soft "$BASE"
 git commit -qm "$MSG"
 echo "collapsed $COUNT commit(s) into $(git rev-parse --short HEAD)"
+
+# The cap counts failed runs, so a run that reached an accepted collapse returns
+# the budget. Without this, asking for the same change twice a month apart would
+# spend the second ask's attempts on the first ask's successes.
+[[ -f .pipeline/request.txt ]] &&
+  "$PIPELINE_HOME/pipeline/attempt_guard.sh" --clear build .pipeline/request.txt >/dev/null || true

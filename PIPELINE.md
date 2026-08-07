@@ -70,8 +70,9 @@ toolchains write `.pipeline/HALT` with the reason.
 1. `pipeline/run.sh` records the base commit and detects the native toolchain.
 2. Claude writes the original request and intent artifacts, asking the user up
    to three questions in one round when the request does not stand on its own.
-3. `pipeline/check_assumptions.sh` has DeepSeek grade the intent's assumptions
-   against the request alone, and enforces the verdict and revision budget.
+3. `pipeline/check_assumptions.sh` counts the run against the per-request build
+   cap, then has DeepSeek grade the intent's assumptions against the request
+   alone, and enforces the verdict and revision budget.
 4. DeepSeek creates the plan and native tests independently. If Opus recorded
    that behavioral tests are impossible in the available environment, the test
    stage records the reason and keeps only the detected mechanical check.
@@ -119,6 +120,34 @@ this list is the contract, not the history.
   a question with no plausible second option is one to assume instead. Unattended, it quotes the conversation turns
   the request points at instead. Never a paraphrase either way: a summary is the
   intent's reading, which is what those two stages exist to test.
+- Cap the run itself, not only its stages. Every other budget bounds something
+  inside one run — repairs, restarts, format re-asks, a unit's attempts — and a
+  run that HALTs, DRIFTs, or regresses resets the worktree to its base, so typing
+  the same command again is free to the session and not to the account.
+  `attempt_guard.sh` counts attempts per request: `PIPELINE_MAX_BUILD_ATTEMPTS`,
+  default 3, and `PIPELINE_MAX_CAMPAIGN_ATTEMPTS`, default 2. The third identical
+  failure carries the diagnosis the second did.
+- Key the cap on the request, so a changed request is a new budget and an
+  identical one is a repeat. `\r` and edge whitespace are normalized away for the
+  reason `baseline_stamp.sh` strips them: a checkout under `core.autocrlf`
+  rewrites every line ending without changing a byte the user typed. The ledger
+  is `.git/pipeline-attempts.json` — outside the worktree, because both consuming
+  stages require a clean tree, and inside `.git` because `run.sh` deletes
+  `.pipeline` and `campaign_init.sh` archives `.campaign`. It keeps the 50
+  most-recently-used requests.
+- Count it in the consumer. The guard runs at the top of `check_assumptions.sh`
+  and `validate_backlog.sh`: the first script after the request text exists in
+  each scope, unskippable because `plan.sh` and `tests.sh` need the one's verdict
+  and `check_backlog.sh` needs the other's state file, and early enough that a
+  spent budget costs no DeepSeek call. It is idempotent within a run, via a
+  marker in the directory the run owns, because both stages are re-run on a
+  revision verdict and revisions are not attempts.
+- Return the budget on success and never charge a unit twice. An accepted
+  `collapse.sh` and a campaign that ran every unit clear the entry, so the cap
+  counts runs that failed. A build inside a running campaign is exempt: the unit
+  text carries the previous failure's excerpt, so every retry would hash
+  differently and be granted a fresh three, and `PIPELINE_MAX_UNIT_ATTEMPTS`
+  already bounds it.
 - Do not let the intent stage grade its own confidence. The adjective was chosen
   by the session it was meant to check, nothing downstream contradicted it, and
   the only level with a cost was the one that stopped the run. `check_assumptions.sh`
@@ -291,7 +320,8 @@ backlog and one result line per unit.
 2. Claude asks the question round once, for the whole campaign, and writes
    `.campaign/brief.txt` under every rule that governs `request.txt`.
 3. Claude decomposes the brief into `.campaign/backlog.json`.
-   `validate_backlog.sh` checks its shape and builds `.campaign/state.json`, then
+   `validate_backlog.sh` counts the campaign against the per-brief cap, checks
+   the backlog's shape, and builds `.campaign/state.json`, then
    `check_backlog.sh` has DeepSeek grade the split against the brief alone.
 4. `campaign_next.sh` writes `.campaign/unit_request.txt` and prints the unit id.
    Exit 3 means the backlog is finished.
@@ -351,6 +381,7 @@ backlog and one result line per unit.
 | Artifact | Purpose |
 |---|---|
 | `.pipeline/toolchain.json` | Language, framework, commands, selector mode, test path |
+| `.git/pipeline-attempts.json` | Attempts per request, for the build and campaign caps |
 | `.pipeline/intent.md` | Human-readable intent |
 | `.pipeline/intent.json` | Authoritative allowlist and structured intent |
 | `.pipeline/assumptions.md` | SOUND or UNSOUND verdict on the intent's assumptions |
@@ -394,6 +425,7 @@ No API key required:
 | `test_repair.sh` | Repair brief, `repair_done.sh` refusals, accepted repair, resume without re-running |
 | `test_restart.sh` | What restart resets and keeps, tag and archive, unstacked stamp, restart budget |
 | `test_assumptions.sh` | SOUND, UNSOUND, rejection archiving, revision budget, malformed output |
+| `test_attempts.sh` | Per-request build and campaign caps, request keying, idempotence within a run, clearing on success, the campaign-unit exemption, ledger pruning |
 | `test_verify.sh` | ACCEPT, DRIFT, malformed verifier output |
 | `test_stage_gates.sh` | Baseline stamp by content, waves refusing a stale or missing baseline, plan and tests refusing an ungraded intent, every collapse refusal |
 | `test_campaign.sh` | Backlog validation, state surviving `run.sh`, unit chaining, retry reset and tag, failure archive and retry excerpt, the three stop conditions, attempt budget |

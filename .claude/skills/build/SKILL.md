@@ -93,7 +93,15 @@ On macOS and Linux, use `bash "$HOME/.claudeorchestrate/pipeline/<script-name>.s
    and the campaign is running, intent copies it verbatim and asks nothing. The
    round was already spent, once, for the whole campaign.
 
-3. Run pipeline script `check_assumptions`. It sends DeepSeek the whole of
+3. Run pipeline script `check_assumptions`. Before anything else it counts this
+   run against the per-request cap: three build attempts on the same request
+   text, then it exits 3 and writes `.pipeline/HALT`. Stop there and report. A
+   fourth run of a request that failed three times buys the diagnosis the third
+   already gave; read `.pipeline/attempt-N` and the archived evidence, then
+   change the request. An accepted `collapse` clears the count, and a unit inside
+   a running campaign is exempt because `PIPELINE_MAX_UNIT_ATTEMPTS` bounds it.
+
+   It then sends DeepSeek the whole of
    `request.txt` and the intent's Assumptions section, nothing else, and its exit
    code is authoritative: 0 continues, 2 means revise the named assumption in
    `intent.md` and `intent.json` and run the script again, 3 means the revision

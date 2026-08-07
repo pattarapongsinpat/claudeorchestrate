@@ -63,6 +63,12 @@ bash "$PIPELINE_HOME/pipeline/validate_assumptions.sh" "$V" >/dev/null 2>&1 || r
 REPO="$WORK/repo"
 mkdir -p "$REPO/.pipeline"
 cd "$REPO"
+# A git repository, because check_assumptions.sh counts the run's attempt against
+# a ledger in .git before it grades anything, and run.sh never gets this far
+# outside one.
+git init -q
+git config user.name 'Pipeline Assumptions Test'
+git config user.email 'pipeline@example.invalid'
 cat > .pipeline/request.txt <<'EOF'
 ## Request
 do it
@@ -112,6 +118,18 @@ printf '# Assumptions\n- Three attempts is enough.\n' > .pipeline/intent.md
 rc=0
 PIPELINE_ASSUMPTIONS_MODEL=gpt bash "$PIPELINE_HOME/pipeline/check_assumptions.sh" >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 1 ]]
+
+# The run's attempt is counted here, not in the skill's prose, and a spent budget
+# refuses before the grading call rather than after it.
+printf '# Assumptions\n- Three attempts is enough.\n' > .pipeline/intent.md
+rm -f .pipeline/attempt
+rc=0
+PIPELINE_MAX_BUILD_ATTEMPTS=1 PIPELINE_ASSUMPTIONS_DRY=1 \
+  bash "$PIPELINE_HOME/pipeline/check_assumptions.sh" > "$WORK/spent.out" 2>&1 || rc=$?
+[[ "$rc" == 3 ]]
+grep -Fq 'build attempt(s)' "$WORK/spent.out"
+[[ -f .pipeline/HALT ]]
+rm -f .pipeline/HALT
 
 # A HALT from intent stops the stage before it spends a call.
 touch .pipeline/HALT

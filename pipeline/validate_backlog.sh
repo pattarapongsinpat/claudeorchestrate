@@ -5,10 +5,17 @@
 # work fails the campaign rather than growing it: the alternative is a scope that
 # changes with nothing checking it against the brief.
 set -euo pipefail
+PIPELINE_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKLOG="${1:-.campaign/backlog.json}"
 
 [[ -f .campaign/base ]] || { echo "no .campaign/base — run campaign_init first" >&2; exit 1; }
 [[ -s .campaign/brief.txt ]] || { echo "missing or empty .campaign/brief.txt" >&2; exit 1; }
+
+# The campaign's own budget, counted here for the reason check_assumptions.sh
+# counts the build's: this is the first script that runs once the brief exists,
+# check_backlog.sh needs the state file it writes, and refusing here spends
+# neither the grading call nor a unit.
+"$PIPELINE_HOME/pipeline/attempt_guard.sh" campaign .campaign/brief.txt
 [[ -f "$BACKLOG" ]] || { echo "missing $BACKLOG" >&2; exit 1; }
 jq -e . "$BACKLOG" >/dev/null 2>&1 || { echo "$BACKLOG is not valid JSON" >&2; exit 1; }
 

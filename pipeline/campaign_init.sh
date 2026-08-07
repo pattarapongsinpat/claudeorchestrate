@@ -33,6 +33,10 @@ if [[ -f .campaign/state.json ]]; then
 fi
 
 mkdir -p .campaign
+# The per-campaign marker attempt_guard.sh writes. Left behind it would make the
+# new campaign look like one whose attempt was already counted, so the guard
+# would wave through every campaign after the first.
+rm -f .campaign/attempt
 git rev-parse HEAD > .campaign/base
 
 echo "campaign base: $(cat .campaign/base)"
