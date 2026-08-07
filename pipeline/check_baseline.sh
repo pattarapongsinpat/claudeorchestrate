@@ -38,7 +38,26 @@ if [[ "$generated" == true && -n "$test_file" && -f "$test_file" ]]; then
   mv "$test_file" "$held_test"
 fi
 
-if ! RUN_TESTS_LOAD=1 "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/load.out 2>&1; then
+load_status=0
+RUN_TESTS_LOAD=1 "$PIPELINE_HOME/pipeline/run_tests.sh" > .pipeline/load.out 2>&1 || load_status=$?
+
+# "Contains no tests" and "fails to load" are both non-zero, and only the second
+# one means every step is unwinnable. Conflating them HALTed any repository whose
+# first pipeline run was also its first test: a greenfield project could never
+# start one, and the workaround was to hand-commit a placeholder assertion that
+# can never fail. empty_load_status is the runner's own code for the first case
+# where it has one — see detect.sh for why pytest is the only adapter needing it.
+empty_status=$(jq -r '.empty_load_status // ""' "$CONFIG" | tr -d '\r')
+if ((load_status != 0)) && [[ -n "$empty_status" && "$load_status" == "$empty_status" ]]; then
+  # Record it rather than letting it read as a pass. This stage exists to prove
+  # the repository's own suite is healthy, and against an empty suite it proved
+  # nothing; whoever reads the run should know which of the two happened.
+  echo "existing suite is empty; the load check proved nothing" > .pipeline/empty_suite
+  echo "existing suite contains no tests — nothing to load, proceeding"
+  load_status=0
+fi
+
+if ((load_status != 0)); then
   { echo "the existing test suite does not load, so no step can reliably pass:"
     tail -30 .pipeline/load.out
   } > .pipeline/HALT

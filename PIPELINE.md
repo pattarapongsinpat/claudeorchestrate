@@ -215,6 +215,17 @@ this list is the contract, not the history.
   `NameError`, `SyntaxError`, `IndentationError`, or `Unexpected token` — the file
   does not execute, so no implementation can satisfy it.
   `PIPELINE_ALLOW_BROKEN_TESTS=1` overrides.
+- An empty existing suite is not a broken one. Both exit non-zero from the load
+  command and only the second means every step is unwinnable, so a repository
+  whose first run was also its first test HALTed at the baseline and could never
+  start one — the workaround being a hand-committed assertion that can never
+  fail. `empty_load_status` in `toolchain.json` is the runner's own code for
+  "no tests", and `check_baseline.sh` proceeds on exactly that code and writes
+  `.pipeline/empty_suite`. It is set only for pytest, which exits 5 on no tests
+  and 2 on a collection error; Vitest and Jest get `--passWithNoTests`, and the
+  rest exit 0 on an empty selection. Recording it is half the rule: the stage
+  exists to prove the repository's own suite is healthy, and against an empty
+  suite it proved nothing, which must not read as a pass.
 - Normalize generated test titles to identifiers in `tests.sh`. Selectors build one
   regex from mapped names, where a space or colon matches wrongly. Colliding titles
   get a numeric suffix.

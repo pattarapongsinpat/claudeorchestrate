@@ -209,6 +209,21 @@ case "$framework" in
   *)           load='[]' ;;
 esac
 
+# The exit status the load command uses to mean "this suite contains no tests",
+# for the runners that distinguish it from "this suite is broken". An empty
+# existing suite is not a broken one: a repository whose first pipeline run is
+# also its first test would otherwise HALT at the baseline and could never start.
+#
+# pytest is the only detected runner that needs this. Exit 5 is no tests
+# collected and exit 2 is a collection error, so the two are already separable
+# and check_baseline was discarding the distinction. Vitest and Jest are handed
+# --passWithNoTests above, and node --test, go, cargo, maven, gradle, and dotnet
+# exit 0 on an empty selection, so all of them already report empty as success.
+case "$framework" in
+  pytest) empty_load_status=5 ;;
+  *)      empty_load_status=null ;;
+esac
+
 # Mechanical checks retained when Opus must judge behavior directly. Some host
 # environments cannot execute meaningful unit tests, but compilation is still
 # valuable when the detected toolchain provides it.
@@ -235,7 +250,9 @@ esac
 
 tmp=$(mktemp)
 jq --argjson c "$collect" --argjson l "$load" --argjson j "$judgment" --argjson t "$timeout_s" \
-   '.collect_command = $c | .load_command = $l | .judgment_command = $j | .test_timeout_seconds = $t' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
+   --argjson e "$empty_load_status" \
+   '.collect_command = $c | .load_command = $l | .judgment_command = $j | .test_timeout_seconds = $t
+    | .empty_load_status = $e' "$OUT" > "$tmp" && mv "$tmp" "$OUT"
 
 # Repositories with non-standard suites can commit an exact adapter override.
 # This avoids rediscovering custom harness commands on every run and lets the
@@ -247,7 +264,8 @@ if [[ -f "$OVERRIDE" ]]; then
     all(keys[]; IN("test_command", "load_command", "collect_command", "setup_commands",
                    "selector_mode", "generated_tests", "generated_test_file",
                    "framework", "test_timeout_seconds", "test_project_coverage",
-                   "linked_source_files", "verification_mode", "judgment_command")) and
+                   "linked_source_files", "verification_mode", "judgment_command",
+                   "empty_load_status")) and
     ((.test_command // []) | type == "array" and all(.[]; type == "string")) and
     ((.load_command // []) | type == "array" and all(.[]; type == "string")) and
     ((.collect_command // []) | type == "array" and all(.[]; type == "string")) and
@@ -256,6 +274,7 @@ if [[ -f "$OVERRIDE" ]]; then
     ((.generated_tests // false) | type == "boolean") and
     ((.generated_test_file // "") | type == "string") and
     ((.verification_mode // "tests") | IN("tests", "judgment")) and
+    ((.empty_load_status // 0) | type == "number" and . >= 0 and . <= 255) and
     ((.selector_mode // "none") | IN("none", "pytest", "regex", "node", "repeat", "maven", "gradle", "dotnet", "ctest")) and
     ((.test_timeout_seconds // 600) | type == "number" and . > 0)
   ' "$OVERRIDE" >/dev/null || unsupported 'invalid .pipeline-toolchain.json override'

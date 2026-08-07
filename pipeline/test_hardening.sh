@@ -100,6 +100,64 @@ EOF
   [[ ! -f .pipeline/HALT ]]
 )
 
+# An empty existing suite is not a broken one. A greenfield repository whose
+# first pipeline run is also its first test must reach a red baseline rather than
+# HALT, and the fact that the load check proved nothing must be recorded.
+make_python_repo() {
+  local repo="$1" existing="$2" generated="$3"
+  mkdir -p "$repo/tests"
+  (
+    cd "$repo"
+    git init -q
+    git config user.name 'Pipeline Hardening Test'
+    git config user.email 'pipeline@example.invalid'
+    printf '/.pipeline/\n' >> "$(git rev-parse --git-path info/exclude)"
+    printf '[project]\nname = "fixture"\nversion = "0.1.0"\n' > pyproject.toml
+    [[ -z "$existing" ]] || printf '%s\n' "$existing" > tests/test_existing.py
+    git add -A
+    git commit -qm baseline
+    "$PIPELINE_HOME/pipeline/detect.sh" >/dev/null
+    printf '%s\n' "$generated" > "$(jq -r '.generated_test_file' .pipeline/toolchain.json)"
+  )
+}
+
+GREENFIELD_REPO="$WORK/greenfield"
+make_python_repo "$GREENFIELD_REPO" '' "$(cat <<'EOF'
+def test_adds_numbers():
+    import calculator
+    assert calculator.add(2, 3) == 5
+EOF
+)"
+(
+  cd "$GREENFIELD_REPO"
+  "$PIPELINE_HOME/pipeline/check_baseline.sh" > "$WORK/baseline.log" 2>&1
+  grep -Fq "baseline red — proceeding" "$WORK/baseline.log"
+  [[ ! -f .pipeline/HALT ]]
+  # The stage verified nothing about the repository's own suite, and says so.
+  [[ -f .pipeline/empty_suite ]]
+  # It still stamped, or waves.sh would refuse the run it just allowed.
+  [[ -s .pipeline/baseline.sha ]]
+)
+
+# The empty case must not swallow the broken one: pytest exits 5 with no tests
+# and 2 on a collection error, and only the second means no step can pass.
+UNIMPORTABLE_REPO="$WORK/unimportable"
+make_python_repo "$UNIMPORTABLE_REPO" 'import a_module_that_is_not_installed' "$(cat <<'EOF'
+def test_adds_numbers():
+    import calculator
+    assert calculator.add(2, 3) == 5
+EOF
+)"
+(
+  cd "$UNIMPORTABLE_REPO"
+  rc=0
+  "$PIPELINE_HOME/pipeline/check_baseline.sh" > "$WORK/baseline.log" 2>&1 || rc=$?
+  [[ "$rc" == 1 ]]
+  [[ -f .pipeline/HALT ]]
+  grep -Fq 'the existing test suite does not load' .pipeline/HALT
+  [[ ! -f .pipeline/empty_suite ]]
+)
+
 echo "baseline classification tests passed"
 
 # --- code.sh single graded attempt -------------------------------------------
