@@ -270,11 +270,54 @@ EOF
   cd "$RUN_REPO"
   "$PIPELINE_HOME/pipeline/run.sh" >/dev/null
   path=$(jq -r '.generated_test_file' .pipeline/toolchain.json)
-  [[ "$path" =~ ^test/pipeline_generated\.[0-9]{8}-[0-9]{6}\.test\.js$ ]] || {
+  # The whole `.test.js` chain is the extension, so the id lands before it and
+  # the vitest/jest/node-test glob still matches.
+  [[ "$path" =~ ^test/pipeline_generated_[0-9]{8}_[0-9]{6}\.test\.js$ ]] || {
     echo "unexpected generated test path: $path" >&2
     exit 1
   }
 )
+
+# The run id is part of a file name the toolchain reads back, so scoping it is
+# not free-form. Each case below is a runner that silently ignored, or outright
+# failed to load, a name that merely looked scoped.
+make_scoped_repo() {
+  local repo="$1"; shift
+  mkdir -p "$repo"
+  (
+    cd "$repo"
+    git init -q
+    git config user.name 'Pipeline Hardening Test'
+    git config user.email 'pipeline@example.invalid'
+    printf '/.pipeline/\n' >> "$(git rev-parse --git-path info/exclude)"
+    "$@"
+    git add -A
+    git commit -qm baseline
+    "$PIPELINE_HOME/pipeline/run.sh" >/dev/null
+    jq -r '.generated_test_file' .pipeline/toolchain.json
+  )
+}
+
+# Python derives the module name from the stem: a dot made it unimportable and
+# pytest collected nothing at all.
+py_path=$(make_scoped_repo "$WORK/scope-py" \
+  bash -c 'printf "[project]\nname = \"f\"\nversion = \"0.1.0\"\n" > pyproject.toml; mkdir -p tests; printf "def test_placeholder(): pass\n" > tests/test_placeholder.py')
+[[ "$py_path" =~ ^tests/test_pipeline_generated_[0-9]{8}_[0-9]{6}\.py$ ]] || {
+  echo "python scoped path is not a valid module name: $py_path" >&2; exit 1; }
+
+# `go test` compiles only *_test.go, so the id goes before the suffix rather
+# than after it. Appending it produced a file go never built.
+go_path=$(make_scoped_repo "$WORK/scope-go" \
+  bash -c 'printf "module fixture\n\ngo 1.21\n" > go.mod; printf "package fixture\n" > fixture.go')
+[[ "$go_path" =~ _[0-9]{8}_[0-9]{6}_test\.go$ ]] || {
+  echo "go scoped path lost its _test.go suffix: $go_path" >&2; exit 1; }
+
+# Surefire runs *Test.java and nothing else, and the stem is also the public
+# class name, so the id goes before `Test` and uses an identifier separator.
+java_path=$(make_scoped_repo "$WORK/scope-java" \
+  bash -c 'printf "<project><modelVersion>4.0.0</modelVersion><groupId>f</groupId><artifactId>f</artifactId><version>1</version></project>\n" > pom.xml; mkdir -p src/main/java; printf "public class F {}\n" > src/main/java/F.java')
+[[ "$java_path" =~ ^src/test/java/PipelineGenerated_[0-9]{8}_[0-9]{6}Test\.java$ ]] || {
+  echo "java scoped path is not a surefire-matched class name: $java_path" >&2; exit 1; }
 
 echo "run-scoped test path tests passed"
 echo "hardening tests passed"

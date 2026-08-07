@@ -219,7 +219,14 @@ this list is the contract, not the history.
   regex from mapped names, where a space or colon matches wrongly. Colliding titles
   get a numeric suffix.
 - Scope the generated test path to the run. A previous run's tests are part of the
-  suite, and `tests.sh` refuses to overwrite.
+  suite, and `tests.sh` refuses to overwrite. Scope it with `_<id>` and never a
+  dot: the stem is also the Python module, the Rust integration crate, and the
+  Java class name, and `test_pipeline_generated.20260101-120000.py` failed to
+  import, so pytest collected nothing and `check_baseline` HALTed every Python
+  run. Insert the id before a suffix the runner matches on rather than after it —
+  `go test` compiles only `*_test.go` and surefire runs only `*Test.java`, and an
+  appended id there is the worse failure, because the generated tests are then
+  silently never run and the suite passes.
 
 **Escalation**
 
